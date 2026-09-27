@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="renderer" content="webkit" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%riderguard.svg" />
+    <link rel="preload" as="image" href="%BASE_URL%rider-loading.png" />
+    <title>%VITE_APP_TITLE%</title>
+    <style>
+      html, body, #app { height: 100%; margin: 0; padding: 0; }
+      #app { position: relative; z-index: 1; }
+      #loader-wrapper {
+        position: fixed; inset: 0; z-index: 999999; display: grid; place-content: center;
+        justify-items: center; gap: 18px; padding: 24px; box-sizing: border-box;
+        background: #142536; color: #f1f7fb; font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+        opacity: 1; visibility: visible; transition: opacity .48s ease, visibility .48s ease;
+      }
+      #loader-wrapper.is-loaded { opacity: 0; visibility: hidden; pointer-events: none; }
+      .rg-loader-scene {
+        position: relative; width: min(58vh, 76vw, 480px); aspect-ratio: 1;
+        overflow: hidden; border-radius: 22px; background: #60b5f8;
+        box-shadow: 0 22px 70px rgba(0, 0, 0, .24);
+      }
+      .rg-loader-art {
+        position: absolute; inset: -3%; width: 106%; height: 106%; object-fit: cover;
+        display: block; image-rendering: pixelated; animation: rg-ride 1.45s ease-in-out infinite;
+        will-change: transform;
+      }
+      .rg-loader-wind { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+      .rg-loader-wind i {
+        position: absolute; left: 0; top: var(--y); width: var(--w); height: 3px;
+        background: #eaf7ff; opacity: .6;
+        animation: rg-flow var(--speed) linear infinite; animation-delay: var(--delay);
+      }
+      .rg-loader-title { margin: 0; font-size: clamp(16px, 2.4vw, 21px); font-weight: 600; letter-spacing: .04em; }
+      @keyframes rg-ride {
+        0%, 100% { transform: translate3d(-.25%, .15%, 0) rotate(-.12deg); }
+        50% { transform: translate3d(.25%, -.3%, 0) rotate(.12deg); }
+      }
+      @keyframes rg-flow {
+        from { transform: translate3d(-150px, 0, 0); }
+        to { transform: translate3d(650px, 0, 0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .rg-loader-art, .rg-loader-wind i { animation: none; }
+        .rg-loader-wind { display: none; }
+        #loader-wrapper { transition-duration: .01ms; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loader-wrapper" role="status" aria-label="正在进入安全中心">
+      <div class="rg-loader-scene" aria-hidden="true">
+        <img class="rg-loader-art" src="%BASE_URL%rider-loading.png" alt="" fetchpriority="high" decoding="async" />
+        <div class="rg-loader-wind">
+          <i style="--y:7%;--w:48px;--speed:1.65s;--delay:-.2s"></i>
+          <i style="--y:22%;--w:28px;--speed:2.1s;--delay:-1.1s"></i>
+          <i style="--y:93%;--w:64px;--speed:.85s;--delay:-.3s"></i>
+          <i style="--y:97%;--w:35px;--speed:1.1s;--delay:-.9s"></i>
+        </div>
+      </div>
+      <p class="rg-loader-title">安全守护，即刻出发</p>
+    </div>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
