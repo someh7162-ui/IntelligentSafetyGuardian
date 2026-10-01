@@ -44,7 +44,8 @@ def jpeg(people: int) -> bytes:
 def telemetry_item(device: str, tick: int, speed: float, lat: float, lng: float) -> dict:
     payload = {
         "deviceId": device, "sampleId": str(uuid.uuid4()), "capturedAtMs": int(time.time() * 1000),
-        "latitude": lat, "longitude": lng, "speedKph": speed, "gpsValid": True,
+        "latitude": lat, "longitude": lng, "speedKph": speed, "heading": 51.2,
+        "gpsAccuracy": 3.2, "gpsValid": True,
     }
     return {"path": "/device/riderguard/telemetry", "body": base64.b64encode(json.dumps(payload).encode()).decode(),
             "headers": {"Content-Type": "application/json"}}
@@ -106,9 +107,17 @@ def main() -> None:
         queue_file.write_text("".join(json.dumps(item) + "\n" for item in queue))
         valid = policy.get("validUntilMs", 0) >= int(time.time() * 1000)
         over = speed > policy.get("limitKph", 25)
-        print(f"{tick:03d}s | GPS 34.2304,108.9342 | {speed:.1f} km/h | people={people} | "
+        signal = policy.get("trafficSignal") or {}
+        signal_valid = signal.get("available") and signal.get("validUntilMs", 0) > int(time.time() * 1000)
+        signal_alert = signal_valid and (policy.get("alerts") or {}).get("trafficSignal", False)
+        signal_stale = signal.get("available") and not signal_valid
+        led = "RED" if over or signal_alert else "AMBER" if not valid or signal_stale else "GREEN"
+        signal_text = (f"MOCK {signal.get('state')} {signal.get('remainingSeconds')}s "
+                       f"{signal.get('distanceM', 0):.0f}m" if signal_valid else "UNKNOWN")
+        print(f"{tick:03d}s | GPS {34.2304 + tick * 0.00002:.5f},{108.9342 + tick * 0.00003:.5f} | {speed:.1f} km/h | people={people} | "
               f"{policy.get('mode')} limit={policy.get('limitKph')} | "
-              f"LED={'RED' if over else 'GREEN'} BUZZER={'ON' if over else 'OFF'}" +
+              f"signal={signal_text} | LED={led} "
+              f"BUZZER={'ON' if over or signal_alert else 'OFF'}" +
               (" | POLICY STALE" if not valid else ""))
         time.sleep(1)
 

@@ -6,6 +6,12 @@
     </div>
     <div class="filters">
       <el-input v-model="keyword" clearable placeholder="搜索骑手或设备编号" />
+      <el-select v-model="typeFilter" aria-label="筛选事件类型">
+        <el-option label="全部类型" value="ALL" />
+        <el-option label="超速事件" value="OVERSPEED" />
+        <el-option label="人群密集风险" value="CROWD_DENSITY" />
+        <el-option label="红灯接近提醒" value="RED_SIGNAL_WARNING" />
+      </el-select>
       <el-select v-model="statusFilter" aria-label="筛选处理状态">
         <el-option label="全部状态" value="ALL" />
         <el-option label="待处置" value="OPEN" />
@@ -19,9 +25,11 @@
     <div v-if="!filteredEvents.length && !loadError" class="empty-state">{{ loading ? '正在加载事件…' : '当前条件下没有风险事件' }}</div>
     <div v-else class="event-grid" aria-label="风险事件列表">
       <button v-for="event in filteredEvents" :key="event.id" class="event-card" type="button" @click="openEvent(event.id)">
-        <span class="event-card-top"><span class="state-dot" :class="event.status.toLowerCase()"></span><b>{{ event.rider_name || event.device_id }}</b><small :class="event.status.toLowerCase()">{{ statusLabel(event.status) }}</small></span>
-        <strong>{{ Number(event.speed_kph).toFixed(1) }} <em>km/h</em></strong>
-        <span class="event-meta">{{ event.crowd_mode ? '人群密集区域' : '普通路段' }} · 限速 {{ Number(event.speed_limit_kph).toFixed(0) }} km/h</span>
+        <span class="event-card-top"><span class="state-dot" :class="event.status.toLowerCase()"></span><b>{{ event.rider_name || event.device_id }}</b><span class="event-type">{{ typeLabel(event.event_type) }}<template v-if="event.is_mock"> · 模拟</template></span><small :class="event.status.toLowerCase()">{{ statusLabel(event.status) }}</small></span>
+        <strong v-if="event.event_type === 'CROWD_DENSITY'">{{ event.person_count ?? '—' }} <em>人</em></strong>
+        <strong v-else>{{ Number(event.speed_kph).toFixed(1) }} <em>km/h</em></strong>
+        <span v-if="event.event_type === 'CROWD_DENSITY'" class="event-meta">单张照片达到人群阈值 · 请核对现场</span>
+        <span v-else class="event-meta">{{ event.event_type === 'RED_SIGNAL_WARNING' ? `${event.intersection_id || '未知路口'} · ${event.distance_m == null ? '距离未知' : `${Math.round(event.distance_m)} m`}` : `${event.crowd_mode ? '人群密集区域' : '普通路段'} · 限速 ${Number(event.speed_limit_kph).toFixed(0)} km/h` }}</span>
         <span class="event-meta">{{ formatTime(event.captured_ms) }} · {{ event.image_id ? '有照片证据' : '暂无照片' }}</span>
       </button>
     </div>
@@ -31,8 +39,10 @@
       <div v-if="detailLoading" class="detail-feedback" role="status">正在读取事件详情…</div>
       <div v-else-if="detailError" class="detail-feedback" role="alert">暂时无法读取事件详情。<el-button @click="openEvent(requestedEventId)">重试</el-button></div>
       <div v-else-if="detail" class="event-detail">
-        <header><div><span class="eyebrow">EVENT / {{ detail.id }}</span><h2>{{ detail.crowd_mode ? '人群密集区域超速' : '超速事件' }}</h2><p>{{ detail.rider_name || detail.device_id }} · {{ formatTime(detail.captured_ms) }}</p></div><span class="status-tag" :class="detail.status.toLowerCase()">{{ statusLabel(detail.status) }}</span></header>
-        <div class="detail-stats"><div><small>事发车速</small><strong>{{ Number(detail.speed_kph).toFixed(1) }} <em>km/h</em></strong></div><div><small>当时限速</small><strong>{{ Number(detail.speed_limit_kph).toFixed(1) }} <em>km/h</em></strong></div><div><small>前方人数</small><strong>{{ detail.person_count ?? '—' }} <em>人</em></strong></div></div>
+        <header><div><span class="eyebrow">EVENT / {{ detail.id }}<template v-if="detail.is_mock"> · MOCK / 模拟数据</template></span><h2>{{ detail.event_type === 'CROWD_DENSITY' ? '人群密集风险' : detail.event_type === 'RED_SIGNAL_WARNING' ? '红灯接近提醒' : detail.crowd_mode ? '人群密集区域超速' : '超速事件' }}</h2><p>{{ detail.rider_name || detail.device_id }} · {{ formatTime(detail.captured_ms) }}</p></div><span class="status-tag" :class="detail.status.toLowerCase()">{{ statusLabel(detail.status) }}</span></header>
+        <div v-if="detail.event_type === 'CROWD_DENSITY'" class="detail-stats"><div><small>前方人数</small><strong>{{ detail.person_count ?? '—' }} <em>人</em></strong></div><div><small>触发条件</small><strong>单帧达到阈值</strong></div><div><small>车速</small><strong>暂无数据</strong></div></div>
+        <div v-else class="detail-stats"><div><small>事发车速</small><strong>{{ Number(detail.speed_kph).toFixed(1) }} <em>km/h</em></strong></div><div><small>{{ detail.event_type === 'RED_SIGNAL_WARNING' ? '路口' : '当时限速' }}</small><strong>{{ detail.event_type === 'RED_SIGNAL_WARNING' ? detail.intersection_id || '—' : Number(detail.speed_limit_kph).toFixed(1) }} <em>{{ detail.event_type === 'RED_SIGNAL_WARNING' ? '' : 'km/h' }}</em></strong></div><div><small>{{ detail.event_type === 'RED_SIGNAL_WARNING' ? '距离路口' : '前方人数' }}</small><strong>{{ detail.event_type === 'RED_SIGNAL_WARNING' ? detail.distance_m == null ? '—' : Math.round(detail.distance_m) : detail.person_count ?? '—' }} <em>{{ detail.event_type === 'RED_SIGNAL_WARNING' ? 'm' : '人' }}</em></strong></div></div>
+        <div v-if="detail.event_type === 'RED_SIGNAL_WARNING'" class="detail-section"><h3>信号快照</h3><p class="fine-print">{{ detail.intersection_id }} · {{ detail.signal_group }} · {{ detail.movement }} · {{ detail.signal_state }} · 来源 {{ detail.signal_source }}。<template v-if="detail.is_mock">这是联调数据，不代表真实道路交通信号。</template></p></div>
         <div class="detail-section"><div class="section-title"><h3>现场证据</h3><el-button text type="primary" @click="goToMap">查看地图与轨迹</el-button></div>
           <img v-if="photoUrl" :src="photoUrl" class="photo" alt="事件现场照片" />
           <div v-else class="photo-empty">{{ detail.image_id ? '照片加载中或暂不可用' : '此事件暂无关联照片' }}</div>
@@ -62,6 +72,7 @@ const detail = ref<EventDetail>();
 const detailLoading = ref(false), detailError = ref(false), requestedEventId = ref(0);
 const keyword = ref('');
 const statusFilter = ref('ALL');
+const typeFilter = ref('ALL');
 const loading = ref(false);
 const loadError = ref(false);
 const saving = ref(false);
@@ -71,10 +82,12 @@ const note = ref('');
 const photoUrl = ref('');
 let detailRequestVersion = 0;
 const filteredEvents = computed(() => events.value.filter(event =>
+  (typeFilter.value === 'ALL' || event.event_type === typeFilter.value) &&
   (statusFilter.value === 'ALL' || event.status === statusFilter.value) &&
   `${event.rider_name || ''} ${event.device_id}`.toLowerCase().includes(keyword.value.trim().toLowerCase())
 ));
 const statusLabel = (status: string) => ({ OPEN: '待处置', REVIEWING: '核实中', RESOLVED: '已处置', DISMISSED: '误报' })[status as 'OPEN'] || status;
+const typeLabel = (type: string) => ({ OVERSPEED: '超速', CROWD_DENSITY: '人群密集', RED_SIGNAL_WARNING: '红灯接近' })[type as 'OVERSPEED'] || type;
 const formatTime = (value: number | string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
 
 async function loadEvents() {
@@ -144,6 +157,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); detailRequest
 .event-card:hover { transform: translateX(2px); border-color: #efb497; box-shadow: 0 12px 28px #22353c13; }
 .event-card-top { justify-content: flex-start; }.event-card-top b { color: #283941; font-size: 13px; }.event-card-top small { margin-left: auto; color: #c86639; font-size: 11px; }
 .event-card-top small.resolved, .event-card-top small.dismissed { color: #5b8d77; }
+.event-type { padding: 3px 6px; border-radius: 5px; background: #f2f5f3; color: #687b7d; font-size: 10px; white-space: nowrap; }
 .state-dot { width: 8px; height: 8px; border-radius: 50%; background: #e7783f; }.state-dot.resolved, .state-dot.dismissed { background: #6fa389; }
 .event-card strong { color: #24343c; font-size: 23px; font-variant-numeric: tabular-nums; }.event-card strong em, .detail-stats em { color: #8d9b9f; font-size: 12px; font-style: normal; font-weight: 500; }
 .event-meta { color: #66767d; font-size: 12px; }.empty-state, .history-empty { padding: 35px; border: 1px dashed #d7e0dc; border-radius: 12px; color: #819198; text-align: center; }

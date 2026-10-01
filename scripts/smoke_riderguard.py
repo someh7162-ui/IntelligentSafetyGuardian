@@ -112,6 +112,7 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:8080")
     parser.add_argument("--db-password", default=os.getenv("RIDERGUARD_TEST_DB_PASSWORD", "root"))
     parser.add_argument("--fault-ai-port", type=int, help="Serve controllable AI on this port; backend AI URL must match")
+    parser.add_argument("--traffic-demo", action="store_true", help="Check DEMO-001 mock red signal warning (backend demo mode required)")
     parser.add_argument("--admin-password", default=os.getenv("RIDERGUARD_TEST_ADMIN_PASSWORD"),
                         help="Enable admin API checks using the local admin account")
     args = parser.parse_args()
@@ -159,16 +160,52 @@ def main() -> None:
             gps_valid, lat, lng = cursor.fetchone()
             check(gps_valid == 0 and lat is None and lng is None, "invalid GPS is stored without coordinates")
 
+        if args.traffic_demo:
+            # The mock signal is red for the first half of each minute. Use a fresh sample inside that window.
+            deadline = time.monotonic() + 35
+            while int(time.time() * 1000) % 60_000 >= 29_000:
+                if time.monotonic() >= deadline:
+                    raise AssertionError("DEMO-001 did not enter its red phase")
+                time.sleep(0.5)
+            approach = telemetry_item(device_id, 30, 18, 34.2309, 108.93495)
+            signal_response = send(args.base_url, token, approach)
+            signal = signal_response["trafficSignal"]
+            check(signal["available"] and signal["state"] == "RED" and
+                  signal["intersectionId"] == "DEMO-001" and signal["mock"] and
+                  signal_response["alerts"]["trafficSignal"], "DEMO-001 red approach alerts device")
+            send(args.base_url, token, approach)
+            with db.cursor() as cursor:
+                cursor.execute("SELECT id,track_id,is_mock,signal_state FROM rg_event "
+                               "WHERE device_id=%s AND event_type='RED_SIGNAL_WARNING'", (device_id,))
+                signal_events = cursor.fetchall()
+                check(len(signal_events) == 1 and signal_events[0][2] == 1 and signal_events[0][3] == "RED",
+                      "mock red warning is stored once in risk events")
+                cursor.execute("SELECT COUNT(*) FROM rg_traffic_signal_event WHERE risk_event_id=%s",
+                               (signal_events[0][0],))
+                check(cursor.fetchone()[0] == 1, "mock signal snapshot is linked to risk event")
+            if args.admin_password:
+                admin_token, client_id = admin_session(args.base_url, args.admin_password)
+                listed = admin_request(args.base_url, admin_token, client_id, "/riderguard/events")["data"]
+                check(any(event["id"] == signal_events[0][0] and
+                          event["event_type"] == "RED_SIGNAL_WARNING" and event["is_mock"] for event in listed),
+                      "admin event list includes marked mock red warning")
+                detail = admin_request(args.base_url, admin_token, client_id,
+                                       f"/riderguard/events/{signal_events[0][0]}")["data"]
+                check(detail["event_type"] == "RED_SIGNAL_WARNING" and detail["is_mock"] and
+                      detail["signal_group"] == "DEMO-NE-STRAIGHT", "admin sees marked mock signal detail")
+
         if args.admin_password:
             admin_token, client_id = admin_session(args.base_url, args.admin_password)
             devices = admin_request(args.base_url, admin_token, client_id, "/riderguard/devices")["data"]
             check(any(device["device_id"] == device_id for device in devices), "admin sees simulated device")
             tracks = admin_request(args.base_url, admin_token, client_id,
                                    f"/riderguard/devices/{device_id}/tracks?fromMs=0&toMs={int(time.time()*1000)}")["data"]
-            check(len(tracks) == 3 and sum(bool(track["gps_valid"]) for track in tracks) == 2,
+            expected_tracks = 4 if args.traffic_demo else 3
+            expected_fixes = 3 if args.traffic_demo else 2
+            check(len(tracks) == expected_tracks and sum(bool(track["gps_valid"]) for track in tracks) == expected_fixes,
                   "admin receives valid and invalid trajectory points")
             events = admin_request(args.base_url, admin_token, client_id, "/riderguard/events")["data"]
-            target_event = next(event for event in events if event["device_id"] == device_id)
+            target_event = next(event for event in events if event["device_id"] == device_id and event["event_type"] == "OVERSPEED")
             detail = admin_request(args.base_url, admin_token, client_id,
                                    f"/riderguard/events/{target_event['id']}")["data"]
             check(detail["image_id"] is not None and detail["status"] == "OPEN", "admin sees event detail")
@@ -238,6 +275,7 @@ def main() -> None:
                            "(SELECT id FROM rg_image WHERE device_id=%s)", (device_id,))
             cursor.execute("DELETE FROM rg_event_action WHERE event_id IN "
                            "(SELECT id FROM rg_event WHERE device_id=%s)", (device_id,))
+            cursor.execute("DELETE FROM rg_traffic_signal_event WHERE device_id=%s", (device_id,))
             for table in ("rg_event", "rg_track", "rg_image", "rg_device"):
                 cursor.execute(f"DELETE FROM {table} WHERE device_id=%s", (device_id,))
         for name in names:

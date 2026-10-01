@@ -8,21 +8,28 @@ export interface Device {
   crowd_mode: boolean; last_image_ms?: number; inference_status?: string; inference_mode?: string;
   person_count?: number; latest_image_captured_ms?: number; latest_image_id?: number;
 }
-export interface Track { id: number; device_id: string; captured_ms: number; lat?: number; lng?: number; speed_kph: number; gps_valid: boolean }
+export interface Track { id: number; device_id: string; captured_ms: number; lat?: number; lng?: number; speed_kph: number; gps_valid: boolean; heading?: number; gps_accuracy?: number }
+export interface TrafficSignal {
+  available: boolean; intersectionId?: string; signalGroup?: string; movement: string; state: 'RED' | 'YELLOW' | 'GREEN' | 'UNKNOWN';
+  remainingSeconds?: number; distanceM?: number; source: string; mock: boolean; observedAtMs: number; validUntilMs: number;
+}
+export interface DemoIntersection { enabled: boolean; latitude?: number; longitude?: number; signal?: TrafficSignal }
 export interface RiskEvent {
-  id: number; device_id: string; rider_name?: string; image_id?: number; inference_mode?: string; event_type: string;
-  crowd_mode: boolean; speed_kph: number; speed_limit_kph: number; lat?: number; lng?: number;
-  captured_ms: number; status: string;
+  id: number; device_id: string; rider_name?: string; image_id?: number; inference_mode?: string; person_count?: number; event_type: string;
+  crowd_mode: boolean; speed_kph: number | null; speed_limit_kph: number | null; lat?: number; lng?: number;
+  captured_ms: number; status: string; intersection_id?: string; signal_state?: string; distance_m?: number;
+  signal_source?: string; is_mock?: boolean;
 }
 export interface Policy { normal_limit_kph: number; crowd_limit_kph: number; crowd_person_count: number }
 export interface Overview { onlineDevices: number; riders: number; todayEvents: number; openEvents: number }
 export interface EventAction { actor_user_id: number; actor_name: string; old_status: string; new_status: string; note: string; created_at: string }
-export interface EventDetail extends RiskEvent { person_count?: number; actions: EventAction[] }
+export interface EventDetail extends RiskEvent { person_count?: number; signal_group?: string; movement?: string; remaining_seconds?: number; observed_ms?: number; expires_ms?: number; actions: EventAction[] }
 export interface AiHealth { status: 'UP' | 'DOWN'; mode: string; readyLastHour: number; failedLastHour: number; averageInferenceMs: number; checkedAtMs: number }
 export interface DailyEvents { day: string; events: number; pending: number }
 export interface Analytics { dailyEvents: DailyEvents[] }
 
 export const getOverview = (): AxiosPromise<Overview> => request({ url: '/riderguard/overview', method: 'get' });
+export const getDemoIntersection = (): AxiosPromise<DemoIntersection> => request({ url: '/riderguard/traffic-signal/demo', method: 'get' });
 export const getDevices = (): AxiosPromise<Device[]> => request({ url: '/riderguard/devices', method: 'get' });
 export const getRiders = (): AxiosPromise<Rider[]> => request({ url: '/riderguard/riders', method: 'get' });
 export const addRider = (name: string, phone: string): AxiosPromise<{ id: number }> => request({ url: '/riderguard/riders', method: 'post', data: { name, phone } });

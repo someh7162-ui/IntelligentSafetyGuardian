@@ -94,14 +94,13 @@ if errorlevel 1 (
 )
 
 echo [2/3] Starting RuoYi backend (port 8080, dev profile)...
+set "BACKEND_PORT=8080"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-RestMethod 'http://127.0.0.1:8080/auth/code' -TimeoutSec 3; if ($r.code -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>nul
 if not errorlevel 1 (
-  echo       Backend is already running. Open http://127.0.0.1 to use it.
-  echo       Close the existing backend window before rebuilding changed backend code.
-  start "" "http://127.0.0.1"
-  exit /b 0
+  echo       Backend is already running on port 8080. Reusing it.
+  echo       Restart the backend later if you need newly edited Java code.
+  goto :backend_started
 )
-set "BACKEND_PORT=8080"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=New-Object Net.Sockets.TcpClient; try {$c.Connect('127.0.0.1',8080); exit 0} catch {exit 1} finally {$c.Dispose()}" >nul 2>nul
 if not errorlevel 1 (
   set "BACKEND_PORT=18080"
@@ -131,13 +130,26 @@ echo       Building the latest backend sources...
   )
   popd
 echo       Starting local image inference service (mock mode)...
+start "RiderGuard Backend" "%ComSpec%" /k ""%JAVA_HOME%\bin\java.exe" -jar "%BACKEND_JAR%" --spring.profiles.active=dev --server.port=%BACKEND_PORT%"
+
+:backend_started
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=New-Object Net.Sockets.TcpClient; try {$c.Connect('127.0.0.1',8091); exit 0} catch {exit 1} finally {$c.Dispose()}" >nul 2>nul
 if errorlevel 1 start "RiderGuard AI" "%ComSpec%" /k ""%RUOYI_ROOT%..\..\scripts\start_ai_service.bat""
-start "RiderGuard Backend" "%ComSpec%" /k ""%JAVA_HOME%\bin\java.exe" -jar "%BACKEND_JAR%" --spring.profiles.active=dev --server.port=%BACKEND_PORT%"
 
 echo [3/3] Starting RiderGuard frontend (port 80)...
 set "VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:%BACKEND_PORT%"
-start "RiderGuard Frontend" "%ComSpec%" /k "cd /d "%FRONTEND_DIR%" && echo [RiderGuard Frontend] Starting... && call corepack pnpm dev"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-WebRequest 'http://127.0.0.1' -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200 -and $r.Content -match 'RiderGuard') { exit 0 } } catch {}; exit 1" >nul 2>nul
+if errorlevel 1 (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=New-Object Net.Sockets.TcpClient; try {$c.Connect('127.0.0.1',80); exit 0} catch {exit 1} finally {$c.Dispose()}" >nul 2>nul
+  if not errorlevel 1 (
+    echo [ERROR] Port 80 is occupied by another service. Close it before starting RiderGuard.
+    pause
+    exit /b 1
+  )
+  start "RiderGuard Frontend" /D "%FRONTEND_DIR%" "%ComSpec%" /k "echo [RiderGuard Frontend] Starting... && call corepack pnpm dev"
+) else (
+  echo       Frontend is already running on port 80. Reusing it.
+)
 
 echo.
 echo Service windows are open:
@@ -150,12 +162,12 @@ echo Keep both service windows open. Close a window to stop that service.
 echo Waiting for the frontend server...
 set "FRONTEND_READY=0"
 for /l %%N in (1,1,30) do (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$client = New-Object Net.Sockets.TcpClient; try { $client.Connect('127.0.0.1',80); exit 0 } catch { exit 1 } finally { $client.Dispose() }" >nul 2>nul
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-WebRequest 'http://127.0.0.1' -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200 -and $r.Content -match 'RiderGuard') { exit 0 } } catch {}; exit 1" >nul 2>nul
   if not errorlevel 1 (
     set "FRONTEND_READY=1"
     goto :frontend_ready
   )
-  timeout /t 1 /nobreak >nul
+  powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul
 )
 
 :frontend_ready
@@ -168,7 +180,7 @@ echo Frontend is ready. Waiting for the backend captcha service...
 for /l %%N in (1,1,60) do (
   powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-RestMethod 'http://127.0.0.1:%BACKEND_PORT%/auth/code' -TimeoutSec 3; if ($r.code -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>nul
   if not errorlevel 1 goto :backend_ready
-  timeout /t 1 /nobreak >nul
+  powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul
 )
 echo [WARNING] Backend did not start on port %BACKEND_PORT%. Captcha and login will not work.
 echo Check the backend window, MySQL 3306, and Redis 6379.

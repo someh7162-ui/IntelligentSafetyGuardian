@@ -51,3 +51,9 @@ device/.queue/
 *.log.gz
 **/logs/
 !**/.env.*.example
+
+# RiderGuard device credentials and STM32 build products
+device/gateway/riderguard-device-token.txt
+device/firmware/stm32f407/Debug/
+device/firmware/stm32f407/Release/
+device/firmware/stm32f407/Firmware/

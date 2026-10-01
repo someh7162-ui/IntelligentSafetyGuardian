@@ -38,6 +38,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @RequiredArgsConstructor
 public class RiderGuardService {
     private final JdbcTemplate jdbc;
+    private final TrafficSignalService trafficSignals;
     private final ObjectMapper mapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
@@ -53,25 +54,30 @@ public class RiderGuardService {
     private boolean demoMode;
 
     public record Telemetry(String deviceId, String sampleId, long capturedAtMs, Double latitude,
-                            Double longitude, double speedKph, boolean gpsValid) {}
+                            Double longitude, double speedKph, Double heading, Double gpsAccuracy,
+                            boolean gpsValid) {}
 
+    @Transactional
     public synchronized Map<String, Object> telemetry(Telemetry value, String token) {
         authorize(value.deviceId(), token);
         if (value.sampleId() == null || !value.sampleId().matches("[A-Za-z0-9_-]{1,80}")) bad("无效采样编号");
         if (value.capturedAtMs() < System.currentTimeMillis() - 86_400_000L || value.capturedAtMs() > System.currentTimeMillis() + 300_000L) bad("采样时间不在允许范围");
         if (!Double.isFinite(value.speedKph()) || value.speedKph() < 0 || value.speedKph() > 150) bad("无效速度");
+        if (value.heading() != null && (!Double.isFinite(value.heading()) || value.heading() < 0 || value.heading() >= 360)) bad("无效航向");
+        if (value.gpsAccuracy() != null && (!Double.isFinite(value.gpsAccuracy()) || value.gpsAccuracy() < 0 || value.gpsAccuracy() > 10000)) bad("无效定位精度");
         if (value.gpsValid() && (value.latitude() == null || value.longitude() == null ||
             !Double.isFinite(value.latitude()) || !Double.isFinite(value.longitude()) ||
             Math.abs(value.latitude()) > 90 || Math.abs(value.longitude()) > 180)) bad("无效定位");
         Map<String, Object> device = device(value.deviceId());
         boolean fresh = value.capturedAtMs() >= number(device.get("last_sample_ms"), 0);
-        int inserted = jdbc.update("INSERT IGNORE INTO rg_track (device_id,sample_id,captured_ms,lat,lng,speed_kph,gps_valid) VALUES (?,?,?,?,?,?,?)",
+        int inserted = jdbc.update("INSERT IGNORE INTO rg_track (device_id,sample_id,captured_ms,lat,lng,speed_kph,gps_valid,heading,gps_accuracy) VALUES (?,?,?,?,?,?,?,?,?)",
             value.deviceId(), value.sampleId(), value.capturedAtMs(), value.gpsValid() ? value.latitude() : null,
-            value.gpsValid() ? value.longitude() : null, value.speedKph(), value.gpsValid());
+            value.gpsValid() ? value.longitude() : null, value.speedKph(), value.gpsValid(),
+            value.gpsValid() ? value.heading() : null, value.gpsValid() ? value.gpsAccuracy() : null);
         if (fresh && inserted > 0) {
             jdbc.update("UPDATE rg_device SET last_seen_ms=?,last_sample_ms=?,last_lat=?,last_lng=?,last_speed=?,gps_valid=? WHERE device_id=?",
                 System.currentTimeMillis(), value.capturedAtMs(), value.gpsValid() ? value.latitude() : null,
-                value.gpsValid() ? value.longitude() : null, value.speedKph(), value.gpsValid(), value.deviceId());
+                value.gpsValid() ? value.longitude() : null, value.gpsValid() ? value.speedKph() : null, value.gpsValid(), value.deviceId());
         } else {
             jdbc.update("UPDATE rg_device SET last_seen_ms=? WHERE device_id=?", System.currentTimeMillis(), value.deviceId());
         }
@@ -80,7 +86,7 @@ public class RiderGuardService {
         double limit = number(policy.get(crowd ? "crowd_limit_kph" : "normal_limit_kph"), 25);
         boolean overspeed = inserted > 0 && value.speedKph() > limit;
         if (overspeed) {
-            Long lastAlert = jdbc.queryForObject("SELECT COALESCE(MAX(captured_ms),0) FROM rg_event WHERE device_id=?", Long.class, value.deviceId());
+            Long lastAlert = jdbc.queryForObject("SELECT COALESCE(MAX(captured_ms),0) FROM rg_event WHERE device_id=? AND event_type='OVERSPEED'", Long.class, value.deviceId());
             if (value.capturedAtMs() - lastAlert >= number(policy.get("alert_cooldown_ms"), 10000)) {
                 long trackId = jdbc.queryForObject("SELECT id FROM rg_track WHERE device_id=? AND sample_id=?", Long.class, value.deviceId(), value.sampleId());
                 List<Long> images = jdbc.query("SELECT id FROM rg_image WHERE device_id=? AND inference_status='READY' AND captured_ms BETWEEN ? AND ? ORDER BY captured_ms DESC LIMIT 1",
@@ -91,11 +97,33 @@ public class RiderGuardService {
                 jdbc.update("UPDATE rg_device SET last_alert_ms=? WHERE device_id=?", System.currentTimeMillis(), value.deviceId());
             }
         }
+        long nowMs = System.currentTimeMillis();
+        TrafficSignalService.Signal signal = trafficSignals.observe(value.deviceId(), value.latitude(), value.longitude(),
+            value.speedKph(), value.heading(), value.gpsAccuracy(), value.gpsValid(), value.capturedAtMs(), nowMs);
+        boolean signalWarning = fresh && trafficSignals.warn(signal, value.speedKph(), nowMs);
+        if (signalWarning && inserted > 0) {
+            Long lastSignal = jdbc.queryForObject("SELECT COALESCE(MAX(captured_ms),0) FROM rg_event WHERE device_id=? AND event_type='RED_SIGNAL_WARNING' AND intersection_id=?",
+                Long.class, value.deviceId(), signal.intersectionId());
+            if (value.capturedAtMs() - lastSignal >= 60_000) {
+                long trackId = jdbc.queryForObject("SELECT id FROM rg_track WHERE device_id=? AND sample_id=?", Long.class, value.deviceId(), value.sampleId());
+                int added = jdbc.update("INSERT IGNORE INTO rg_event (device_id,track_id,event_type,crowd_mode,speed_kph,speed_limit_kph,intersection_id,signal_state,distance_m,signal_source,is_mock,lat,lng,captured_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    value.deviceId(), trackId, "RED_SIGNAL_WARNING", crowd, value.speedKph(), limit, signal.intersectionId(),
+                    signal.state(), signal.distanceM(), signal.source(), signal.mock(), value.latitude(), value.longitude(), value.capturedAtMs());
+                if (added > 0) {
+                    long eventId = jdbc.queryForObject("SELECT id FROM rg_event WHERE track_id=? AND event_type='RED_SIGNAL_WARNING'", Long.class, trackId);
+                    jdbc.update("INSERT IGNORE INTO rg_traffic_signal_event (risk_event_id,device_id,intersection_id,signal_group,movement,signal_state,remaining_seconds,distance_m,source,is_mock,observed_ms,expires_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        eventId, value.deviceId(), signal.intersectionId(), signal.signalGroup(), signal.movement(), signal.state(),
+                        signal.remainingSeconds(), signal.distanceM(), signal.source(), signal.mock(), signal.observedAtMs(), signal.validUntilMs());
+                }
+            }
+        }
         boolean visionFresh = number(device.get("last_image_ms"), 0) >= System.currentTimeMillis() - 15000;
         return Map.of("mode", crowd ? "CROWD" : "NORMAL", "limitKph", limit,
             "overspeed", value.speedKph() > limit, "alert", overspeed,
             "validUntilMs", System.currentTimeMillis() + 15000, "imageIntervalMs", 4000,
-            "visionStatus", visionFresh ? "READY" : "STALE");
+            "visionStatus", visionFresh ? "READY" : "STALE",
+            "alerts", Map.of("overspeed", overspeed, "trafficSignal", signalWarning, "crowd", false),
+            "trafficSignal", signal);
     }
 
     public Map<String, Object> image(String deviceId, String sampleId, long capturedMs,
@@ -148,8 +176,13 @@ public class RiderGuardService {
             if (count < 0) throw new IOException("AI response lacks personCount");
             String mode = payload.path("mode").asText("unknown");
             jdbc.update("UPDATE rg_image SET person_count=?,inference_status='READY',inference_mode=? WHERE id=?", count, mode, imageId);
-            synchronized (this) { updateCrowd(deviceId, count); }
-            jdbc.update("UPDATE rg_event SET image_id=? WHERE device_id=? AND image_id IS NULL AND captured_ms BETWEEN ? AND ?",
+            boolean enteredCrowd;
+            synchronized (this) { enteredCrowd = updateCrowd(deviceId, count); }
+            if (enteredCrowd) {
+                jdbc.update("INSERT IGNORE INTO rg_event (device_id,track_id,image_id,event_type,crowd_mode,speed_kph,speed_limit_kph,is_mock,lat,lng,captured_ms) VALUES (?,NULL,?,'CROWD_DENSITY',TRUE,NULL,NULL,?,NULL,NULL,?)",
+                    deviceId, imageId, "mock".equalsIgnoreCase(mode), capturedMs);
+            }
+            jdbc.update("UPDATE rg_event SET image_id=? WHERE device_id=? AND event_type='OVERSPEED' AND image_id IS NULL AND captured_ms BETWEEN ? AND ?",
                 imageId, deviceId, capturedMs - 1000, capturedMs + 15000);
             jdbc.update("INSERT INTO rg_inference_attempt (image_id,result,inference_mode,duration_ms) VALUES (?,?,?,?)",
                 imageId, "READY", mode, Duration.ofNanos(System.nanoTime() - startedAt).toMillis());
@@ -166,16 +199,18 @@ public class RiderGuardService {
         }
     }
 
-    private void updateCrowd(String deviceId, int people) {
+    private boolean updateCrowd(String deviceId, int people) {
         Map<String, Object> d = device(deviceId);
         boolean dense = people >= number(policy().get("crowd_person_count"), 3);
         int denseStreak = dense ? (int) number(d.get("dense_streak"), 0) + 1 : 0;
         int clearStreak = dense ? 0 : (int) number(d.get("clear_streak"), 0) + 1;
         boolean crowd = number(d.get("crowd_mode"), 0) == 1 || Boolean.TRUE.equals(d.get("crowd_mode"));
-        if (denseStreak >= 2) crowd = true;
+        boolean enteredCrowd = dense && !crowd;
+        if (dense) crowd = true;
         if (clearStreak >= 3) crowd = false;
-        jdbc.update("UPDATE rg_device SET dense_streak=?,clear_streak=?,crowd_mode=?,last_image_ms=? WHERE device_id=?",
-            denseStreak, clearStreak, crowd, System.currentTimeMillis(), deviceId);
+        jdbc.update("UPDATE rg_device SET dense_streak=?,clear_streak=?,crowd_mode=?,last_image_ms=?,last_seen_ms=? WHERE device_id=?",
+            denseStreak, clearStreak, crowd, System.currentTimeMillis(), System.currentTimeMillis(), deviceId);
+        return enteredCrowd;
     }
 
     public Map<String, Object> provision(String deviceId, Long riderId) {
@@ -230,6 +265,7 @@ public class RiderGuardService {
     }
 
     public Map<String, Object> policy() { return jdbc.queryForMap("SELECT normal_limit_kph,crowd_limit_kph,crowd_person_count,confidence_threshold,alert_cooldown_ms FROM rg_policy WHERE id=1"); }
+    public Map<String, Object> demoSignal() { return trafficSignals.demoIntersection(); }
 
     public void policy(double normal, double crowd, int people) {
         if (!Double.isFinite(normal) || !Double.isFinite(crowd) || normal <= 0 || normal > 80 || crowd <= 0 || crowd >= normal || people < 1 || people > 50) bad("限速或人数阈值无效");
@@ -246,14 +282,14 @@ public class RiderGuardService {
     }
     public List<Map<String, Object>> tracks(String deviceId, long fromMs, long toMs) {
         device(deviceId);
-        return jdbc.queryForList("SELECT id,device_id,captured_ms,lat,lng,speed_kph,gps_valid FROM rg_track WHERE device_id=? AND captured_ms BETWEEN ? AND ? ORDER BY captured_ms LIMIT 5000", deviceId, fromMs, toMs);
+        return jdbc.queryForList("SELECT id,device_id,captured_ms,lat,lng,speed_kph,gps_valid,heading,gps_accuracy FROM rg_track WHERE device_id=? AND captured_ms BETWEEN ? AND ? ORDER BY captured_ms LIMIT 5000", deviceId, fromMs, toMs);
     }
     public List<Map<String, Object>> events() {
-        return jdbc.queryForList("SELECT e.id,e.device_id,r.name AS rider_name,e.image_id,i.inference_mode,e.event_type,e.crowd_mode,e.speed_kph,e.speed_limit_kph,e.lat,e.lng,e.captured_ms,e.status FROM rg_event e LEFT JOIN rg_device d ON d.device_id=e.device_id LEFT JOIN rg_rider r ON r.id=d.rider_id LEFT JOIN rg_image i ON i.id=e.image_id ORDER BY e.captured_ms DESC LIMIT 200");
+        return jdbc.queryForList("SELECT e.id,e.device_id,r.name AS rider_name,e.image_id,i.inference_mode,i.person_count,e.event_type,e.crowd_mode,e.speed_kph,e.speed_limit_kph,e.intersection_id,e.signal_state,e.distance_m,e.signal_source,e.is_mock,e.lat,e.lng,e.captured_ms,e.status FROM rg_event e LEFT JOIN rg_device d ON d.device_id=e.device_id LEFT JOIN rg_rider r ON r.id=d.rider_id LEFT JOIN rg_image i ON i.id=e.image_id ORDER BY e.captured_ms DESC LIMIT 200");
     }
     public Map<String, Object> event(long id) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT e.id,e.device_id,r.name AS rider_name,e.image_id,i.inference_mode,i.person_count,e.event_type,e.crowd_mode,e.speed_kph,e.speed_limit_kph,e.lat,e.lng,e.captured_ms,e.status" +
-            " FROM rg_event e LEFT JOIN rg_device d ON d.device_id=e.device_id LEFT JOIN rg_rider r ON r.id=d.rider_id LEFT JOIN rg_image i ON i.id=e.image_id WHERE e.id=?", id);
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT e.id,e.device_id,r.name AS rider_name,e.image_id,i.inference_mode,i.person_count,e.event_type,e.crowd_mode,e.speed_kph,e.speed_limit_kph,e.intersection_id,e.signal_state,e.distance_m,e.signal_source,e.is_mock,s.signal_group,s.movement,s.remaining_seconds,s.observed_ms,s.expires_ms,e.lat,e.lng,e.captured_ms,e.status" +
+            " FROM rg_event e LEFT JOIN rg_device d ON d.device_id=e.device_id LEFT JOIN rg_rider r ON r.id=d.rider_id LEFT JOIN rg_image i ON i.id=e.image_id LEFT JOIN rg_traffic_signal_event s ON s.risk_event_id=e.id WHERE e.id=?", id);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "事件不存在");
         Map<String, Object> result = new HashMap<>(rows.getFirst());
         result.put("actions", jdbc.queryForList("SELECT actor_user_id,actor_name,old_status,new_status,note,created_at FROM rg_event_action WHERE event_id=? ORDER BY id", id));

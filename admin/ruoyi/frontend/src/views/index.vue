@@ -17,6 +17,10 @@
           <div v-if="mapKey && !mapError" ref="mapElement" class="map"></div>
           <div v-else class="map map-fallback"><span class="fallback-symbol">⌖</span><strong>{{ mapError ? '地图暂时不可用' : '地图等待高德 Key' }}</strong><p>{{ mapError ? '请检查网络及高德服务，定位列表仍可使用。' : '配置高德 Web Key 后显示位置和轨迹。' }}</p><button v-if="mapError && mapKey" class="refresh-button" @click="retryMap">重试地图</button></div>
           <div class="map-overlay map-overlay-top"><span class="map-live-dot"></span> 实时定位 <span class="map-overlay-count">{{ locatedCount }} 个有效定位</span></div>
+          <button v-if="demoIntersection?.enabled" class="map-signal-card" type="button" :aria-expanded="signalDetailsOpen" @click="signalDetailsOpen = !signalDetailsOpen">
+            <span class="signal-dot" :class="displaySignalState.toLowerCase()"></span>
+            <span><b>DEMO-001 · 模拟信号</b><small>{{ signalLabel }}<template v-if="displaySignalState !== 'UNKNOWN'"> · {{ signalRemaining }} 秒</template></small><small v-if="signalDetailsOpen">仅用于联调 · 东北向直行 · {{ demoIntersection.signal?.source }}<br>更新于 {{ demoIntersection.signal ? time(demoIntersection.signal.observedAtMs) : '—' }}</small></span>
+          </button>
           <div class="map-overlay map-legend"><span><i class="legend-dot online"></i>在线</span><span><i class="legend-dot crowd"></i>人群密集</span><span><i class="legend-dot offline"></i>离线</span></div>
         </div>
         <div v-show="mobileMap || !railCollapsed || page !== 'map'" class="map-rail">
@@ -27,7 +31,7 @@
           <div class="track-heading"><div><span class="eyebrow">骑手详情</span><h3>{{ selectedDeviceInfo?.rider_name || selectedDevice }}</h3><span class="track-id">{{ selectedDevice }}</span></div><button class="track-close" type="button" aria-label="关闭轨迹" @click="clearSelectedDevice">×</button></div>
           <div class="rider-status-line"><span :class="selectedDeviceInfo && online(selectedDeviceInfo) ? 'status-online' : 'status-offline'">{{ selectedDeviceInfo && online(selectedDeviceInfo) ? '设备在线' : '设备离线' }}</span><button class="map-expand" type="button" :disabled="!selectedDeviceInfo?.gps_valid || !!eventAt" :aria-pressed="followRider" @click="toggleFollow">{{ followRider ? '停止跟随' : '跟随骑手' }}</button></div>
           <div class="rider-limit">规则限速 <b>{{ selectedDeviceInfo?.crowd_mode ? policy.crowd_limit_kph : policy.normal_limit_kph }} km/h</b><span>{{ selectedDeviceInfo?.crowd_mode ? '人群密集' : '普通路段' }}</span></div>
-          <div class="track-stats"><div><small>当前车速</small><strong>{{ selectedDeviceInfo?.last_speed == null ? '—' : Number(selectedDeviceInfo.last_speed).toFixed(1) }} <em>km/h</em></strong></div><div><small>最新上报</small><strong>{{ selectedDeviceInfo?.last_sample_ms ? time(selectedDeviceInfo.last_sample_ms) : '—' }}</strong></div><div><small>有效轨迹点</small><strong>{{ validTracks.length }} <em>个</em></strong></div></div>
+          <div class="track-stats"><div><small>当前车速</small><strong>{{ !selectedDeviceInfo || !telemetryFresh(selectedDeviceInfo) || selectedDeviceInfo.last_speed == null ? '—' : Number(selectedDeviceInfo.last_speed).toFixed(1) }} <em>km/h</em></strong></div><div><small>最新上报</small><strong>{{ selectedDeviceInfo?.last_sample_ms ? time(selectedDeviceInfo.last_sample_ms) : '—' }}</strong></div><div><small>有效轨迹点</small><strong>{{ validTracks.length }} <em>个</em></strong></div></div>
           <div class="rider-photo"><button v-if="riderPhotoUrl" type="button" @click="viewImage(selectedDeviceInfo!.latest_image_id!)"><img :src="riderPhotoUrl" alt="骑手最近一次前方现场照片" /></button><span v-else>{{ riderPhotoLoading ? '正在加载现场照片…' : '暂无可用现场照片' }}</span><small>{{ selectedDeviceInfo?.latest_image_captured_ms ? `最新照片 · ${date(selectedDeviceInfo.latest_image_captured_ms)}` : '等待设备上传照片' }}</small></div>
           <div v-if="eventAt" class="event-context"><b>事件轨迹 · {{ date(eventAt) }}</b><span>事发前后各 5 分钟</span><button v-if="eventId" type="button" @click="openEventCenter(eventId)">查看事件证据 ↗</button></div>
           <div v-if="trackError" class="track-notice" role="status">轨迹更新失败，保留上次结果。<button @click="loadSelectedTrack(selectedDevice)">重试</button></div>
@@ -44,7 +48,7 @@
           <button v-for="device in filteredDevices" :key="device.device_id" class="device-row" :class="{ selected: selectedDevice === device.device_id }" @click="selectDevice(device.device_id)">
             <span class="dot" :class="online(device) && telemetryFresh(device) ? device.crowd_mode ? 'crowd' : 'online' : 'offline'"></span>
             <span class="device-name"><b>{{ device.rider_name || device.device_id }}</b><small>{{ device.device_id }}</small></span>
-            <span class="device-data">{{ device.last_speed == null ? '—' : `${Number(device.last_speed).toFixed(1)} km/h` }}<small>{{ device.gps_valid && device.last_lat != null ? `${Number(device.last_lat).toFixed(5)}, ${Number(device.last_lng).toFixed(5)}` : '定位未就绪' }}</small></span>
+            <span class="device-data">{{ !telemetryFresh(device) || device.last_speed == null ? '—' : `${Number(device.last_speed).toFixed(1)} km/h` }}<small>{{ device.gps_valid && device.last_lat != null ? `${Number(device.last_lat).toFixed(5)}, ${Number(device.last_lng).toFixed(5)}` : '定位未就绪' }}</small></span>
             <span class="device-state">{{ !online(device) ? '离线' : !device.last_sample_ms || Date.now() - device.last_sample_ms > 15000 ? '数据过期' : !device.gps_valid ? '定位无效' : device.inference_status === 'ERROR' ? '识别失败' : device.crowd_mode ? '人群密集' : '正常' }}</span>
           </button>
           <p v-if="devices.length && !filteredDevices.length" class="empty">未找到匹配的骑手或设备</p>
@@ -69,7 +73,7 @@
       <section v-if="page === 'policy'" class="panel">
         <div class="panel-head"><div><span class="eyebrow">SPEED POLICY</span><h2>分场景限速</h2></div><span class="tag">演示配置</span></div>
         <div class="policy-grid"><label>普通限速 <el-input-number v-model="policy.normal_limit_kph" :disabled="!canManage" :min="2" :max="80" /> km/h</label><label>人群密集限速 <el-input-number v-model="policy.crowd_limit_kph" :disabled="!canManage" :min="1" :max="79" /> km/h</label><label>密集人数阈值 <el-input-number v-model="policy.crowd_person_count" :disabled="!canManage" :min="1" :max="50" /> 人</label></div>
-        <p class="help">连续两张图片达到人数阈值后切换；连续三张低于阈值后恢复。数值仅供联调。</p>
+        <p class="help">单张图片达到人数阈值后立即切换；连续三张低于阈值后恢复。数值仅供联调。</p>
         <el-button v-if="canManage" type="primary" @click="updatePolicy">保存限速规则</el-button>
       </section>
       <OperationsPanel :devices="devices" />
@@ -80,8 +84,8 @@
 
 <script setup lang="ts" name="Index">
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { addDevice, addRider, bindDevice, getDevices, getEvidenceImage, getOverview, getPolicy, getRiders, getTracks, rotateDeviceToken, savePolicy } from '@/api/riderguard';
-import type { Device, Overview, Policy, Rider, Track } from '@/api/riderguard';
+import { addDevice, addRider, bindDevice, getDemoIntersection, getDevices, getEvidenceImage, getOverview, getPolicy, getRiders, getTracks, rotateDeviceToken, savePolicy } from '@/api/riderguard';
+import type { DemoIntersection, Device, Overview, Policy, Rider, Track } from '@/api/riderguard';
 import { useUserStore } from '@/store/modules/user';
 import OperationsPanel from '@/views/riderguard/OperationsPanel.vue';
 import { distanceMeters, splitTracks, validFix } from '@/utils/riderguard-track';
@@ -124,6 +128,10 @@ const devices = ref<Device[]>([]), riders = ref<Rider[]>([]), tracks = ref<Track
 const policy = reactive<Policy>({ normal_limit_kph: 25, crowd_limit_kph: 10, crowd_person_count: 3 });
 const newDeviceId = ref(''), newDeviceRider = ref<number>(), selectedDevice = ref(''), refreshedAt = ref(0);
 const imageDialog = ref(false), evidenceUrl = ref(''), mapElement = ref<HTMLElement>();
+const demoIntersection = ref<DemoIntersection>(), signalDetailsOpen = ref(false), signalClock = ref(Date.now());
+const displaySignalState = computed(() => demoIntersection.value?.signal && signalClock.value < demoIntersection.value.signal.validUntilMs ? demoIntersection.value.signal.state : 'UNKNOWN');
+const signalRemaining = computed(() => Math.max(0, Math.ceil(((demoIntersection.value?.signal?.remainingSeconds || 0) * 1000 - (signalClock.value - (demoIntersection.value?.signal?.observedAtMs || 0))) / 1000)));
+const signalLabel = computed(() => ({ RED: '红灯', YELLOW: '黄灯', GREEN: '绿灯', UNKNOWN: '状态未知' })[displaySignalState.value]);
 const refreshing = ref(false), mapError = ref(false), trackLoading = ref(false), backendError = ref(false);
 const trackWindowMs = ref(3600000);
 const eventAt = ref<number>();
@@ -150,10 +158,10 @@ const speedLine = computed(() => {
 const metricItems = computed(() => [
   { index: '01 / CONNECTED', label: '在线设备', value: overview.onlineDevices, unit: '台', note: '15 秒内有数据', tone: 'connected' },
   { index: '02 / RIDERS', label: '骑手档案', value: overview.riders, unit: '人', note: '已录入骑手', tone: 'riders' },
-  { index: '03 / 24H EVENTS', label: '近 24 小时风险', value: overview.todayEvents, unit: '起', note: '超速事件', tone: 'events' },
+  { index: '03 / 24H EVENTS', label: '近 24 小时事件', value: overview.todayEvents, unit: '起', note: '含模拟路口提醒', tone: 'events' },
   { index: '04 / ACTION NEEDED', label: '待处置事件', value: overview.openEvents, unit: '起', note: '需要人工核实', tone: 'attention' }
 ]);
-let timer: ReturnType<typeof setInterval> | undefined, amap: any, map: any, route: any, routeStart: any, routeEnd: any;
+let timer: ReturnType<typeof setInterval> | undefined, amap: any, map: any, route: any, routeStart: any, routeEnd: any, signalMarker: any;
 let playbackTimer: ReturnType<typeof setInterval> | undefined, playbackMarker: any, playbackVersion = 0;
 let playbackPoints: Track[] = [], playbackCoordinates: any[] = [];
 let eventMarker: any;
@@ -200,8 +208,9 @@ async function refresh(force = false) {
   refreshing.value = true;
   try {
     if (isMapView.value) {
-      const list = await getDevices();
+      const [list, intersection] = await Promise.all([getDevices(), getDemoIntersection().catch(() => undefined)]);
       devices.value = list.data || [];
+      demoIntersection.value = intersection?.data;
       if (force || Date.now() - lastSummaryAt >= 10000) {
         const summary = await getOverview();
         Object.assign(overview, summary.data || {});
@@ -452,7 +461,18 @@ async function retryMap() {
 async function drawMap() {
   if (!map || !amap) return;
   const version = ++mapDrawVersion;
-  const located = devices.value.filter(d => d.gps_valid && d.last_lat != null && d.last_lng != null);
+  if (demoIntersection.value?.enabled && demoIntersection.value.latitude != null && demoIntersection.value.longitude != null) {
+    const [position] = await convert([[demoIntersection.value.longitude, demoIntersection.value.latitude]]);
+    if (version !== mapDrawVersion || !map) return;
+    const content = `<span class="rg-signal-pin ${displaySignalState.value.toLowerCase()}">🚦<small>MOCK</small></span>`;
+    if (signalMarker) { signalMarker.setPosition(position); signalMarker.setContent(content); }
+    else {
+      signalMarker = new amap.Marker({ position, content, offset: new amap.Pixel(-22, -38), zIndex: 115, title: 'DEMO-001 · 模拟红绿灯' });
+      signalMarker.on('click', () => { signalDetailsOpen.value = true; });
+      map.add(signalMarker);
+    }
+  } else if (signalMarker) { map.remove(signalMarker); signalMarker = undefined; }
+  const located = devices.value.filter(d => online(d) && telemetryFresh(d) && d.gps_valid && d.last_lat != null && d.last_lng != null);
   const positions = await convert(located.map(d => [Number(d.last_lng), Number(d.last_lat)]));
   if (version !== mapDrawVersion || !map) return;
   const visibleIds = new Set(located.map(d => d.device_id));
@@ -514,10 +534,14 @@ onMounted(async () => {
   lastSecondaryPollAt = Date.now();
   timer = setInterval(() => {
     if (document.hidden) return;
+    signalClock.value = Date.now();
     if (isMapView.value) {
       void refresh();
       if (selectedDevice.value && !eventAt.value) void loadSelectedTrack(selectedDevice.value, Date.now() - lastFullTrackAt < 30000);
-    } else if (page.value !== 'policy' && Date.now() - lastSecondaryPollAt >= 15000) {
+    } else if (page.value === 'policy' && Date.now() - lastSecondaryPollAt >= 15000) {
+      lastSecondaryPollAt = Date.now();
+      void getDevices().then(list => { devices.value = list.data || []; backendError.value = false; }).catch(() => { backendError.value = true; });
+    } else if (Date.now() - lastSecondaryPollAt >= 15000) {
       lastSecondaryPollAt = Date.now();
       void refresh();
     }
@@ -539,7 +563,7 @@ watch(page, async () => {
 watch(() => [currentRoute.query.device, currentRoute.query.at, currentRoute.query.event], () => { void selectRouteDevice(); });
 function onVisibilityChange() { if (document.hidden) pausePlayback(); else if (isMapView.value) void refresh(true); }
 onMounted(() => { document.addEventListener('visibilitychange', onVisibilityChange); document.addEventListener('fullscreenchange', syncFullscreen); });
-onUnmounted(() => { photoVersion++; clearRiderPhoto(); mapResizeObserver?.disconnect(); document.removeEventListener('fullscreenchange', syncFullscreen); routeSelectionVersion++; document.removeEventListener('visibilitychange', onVisibilityChange); markerAnimations.forEach(cancelAnimationFrame); markerAnimations.clear(); if (timer) clearInterval(timer); stopPlayback(); mapDrawVersion++; trackRequestVersion++; clearImage(); map?.destroy(); map = undefined; markers.clear(); });
+onUnmounted(() => { photoVersion++; clearRiderPhoto(); mapResizeObserver?.disconnect(); document.removeEventListener('fullscreenchange', syncFullscreen); routeSelectionVersion++; document.removeEventListener('visibilitychange', onVisibilityChange); markerAnimations.forEach(cancelAnimationFrame); markerAnimations.clear(); if (timer) clearInterval(timer); stopPlayback(); mapDrawVersion++; trackRequestVersion++; clearImage(); map?.destroy(); map = undefined; signalMarker = undefined; markers.clear(); });
 </script>
 
 <style scoped lang="scss">
@@ -634,6 +658,11 @@ h2 { margin-top: 5px; font-size: 20px; font-weight: 740; letter-spacing: -.025em
 .map-overlay { position: absolute; z-index: 2; display: inline-flex; align-items: center; gap: 9px; min-height: 28px; padding: 0 11px; border: 1px solid #e5eae8e8; border-radius: 6px; background: #fffffff2; box-shadow: 0 5px 18px #16271b1c; color: #344640; font-size: 9px; font-weight: 760; letter-spacing: .1em; pointer-events: none; }
 .map-overlay-top { top: 14px; left: 14px; }
 .map-overlay-count { margin-left: 7px; padding-left: 10px; border-left: 1px solid #d8e1dc; color: #8a9991; font-weight: 550; letter-spacing: 0; }
+.map-signal-card { position: absolute; z-index: 3; top: 52px; left: 14px; display: flex; align-items: flex-start; gap: 9px; max-width: min(290px, calc(100% - 28px)); min-height: 46px; padding: 9px 12px; border: 1px solid #e5eae8; border-radius: 9px; background: #fffffff5; box-shadow: 0 6px 20px #182b281c; color: #253841; text-align: left; cursor: pointer; }
+.map-signal-card > span:last-child { display: grid; gap: 3px; }.map-signal-card b { font-size: 11px; }.map-signal-card small { color: #728287; font-size: 10px; line-height: 1.45; }
+.signal-dot { flex: 0 0 10px; width: 10px; height: 10px; margin-top: 2px; border-radius: 50%; background: #a9b6b6; }.signal-dot.red { background: #e45c43; }.signal-dot.green { background: #2caa78; }.signal-dot.yellow { background: #e6aa31; }
+.map-stage :deep(.rg-signal-pin) { display: grid; justify-items: center; gap: 1px; min-width: 43px; padding: 4px 5px; border: 1px solid #dce8e3; border-radius: 9px; background: #fff; box-shadow: 0 4px 14px #1e343830; font-size: 22px; line-height: 1; }
+.map-stage :deep(.rg-signal-pin small) { color: #a55b39; font-size: 8px; font-weight: 800; letter-spacing: .05em; }
 .map-live-dot { width: 6px; height: 6px; }
 .map-legend { right: 14px; bottom: 14px; gap: 13px; letter-spacing: 0; font-weight: 600; }
 .map-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }

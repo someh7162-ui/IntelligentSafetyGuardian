@@ -29,6 +29,8 @@ public class RiderGuardAdminController {
 
     @GetMapping("/overview")
     public R<Map<String, Object>> overview() { return R.ok(service.overview()); }
+    @GetMapping("/traffic-signal/demo")
+    public R<Map<String, Object>> demoSignal() { return R.ok(service.demoSignal()); }
     @GetMapping("/riders")
     public R<List<Map<String, Object>>> riders() { return R.ok(service.riders()); }
     @PostMapping("/riders")
