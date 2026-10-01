@@ -83,6 +83,7 @@ export const constantRoutes: RouteRecordRaw[] = [
     meta: { title: '骑手安全', icon: 'monitor' },
     children: [
       { path: 'live', component: () => import('@/views/index.vue'), name: 'RiderGuardLive', meta: { title: '实时态势', icon: 'monitor' } },
+      { path: 'camera', component: () => import('@/views/riderguard/CameraMonitor.vue'), name: 'RiderGuardCamera', meta: { title: '实时画面', icon: 'camera' } },
       { path: 'map', component: () => import('@/views/index.vue'), name: 'RiderGuardMap', meta: { title: '地图与轨迹', icon: 'guide' } },
       { path: 'events', component: () => import('@/views/riderguard/EventCenter.vue'), name: 'RiderGuardEvents', meta: { title: '风险事件', icon: 'message' } },
       { path: 'fleet', component: () => import('@/views/index.vue'), name: 'RiderGuardFleet', meta: { title: '骑手与设备', icon: 'user' } },

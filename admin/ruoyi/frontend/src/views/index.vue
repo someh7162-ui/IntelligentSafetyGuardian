@@ -33,6 +33,7 @@
           <div class="rider-limit">规则限速 <b>{{ selectedDeviceInfo?.crowd_mode ? policy.crowd_limit_kph : policy.normal_limit_kph }} km/h</b><span>{{ selectedDeviceInfo?.crowd_mode ? '人群密集' : '普通路段' }}</span></div>
           <div class="track-stats"><div><small>当前车速</small><strong>{{ !selectedDeviceInfo || !telemetryFresh(selectedDeviceInfo) || selectedDeviceInfo.last_speed == null ? '—' : Number(selectedDeviceInfo.last_speed).toFixed(1) }} <em>km/h</em></strong></div><div><small>最新上报</small><strong>{{ selectedDeviceInfo?.last_sample_ms ? time(selectedDeviceInfo.last_sample_ms) : '—' }}</strong></div><div><small>有效轨迹点</small><strong>{{ validTracks.length }} <em>个</em></strong></div></div>
           <div class="rider-photo"><button v-if="riderPhotoUrl" type="button" @click="viewImage(selectedDeviceInfo!.latest_image_id!)"><img :src="riderPhotoUrl" alt="骑手最近一次前方现场照片" /></button><span v-else>{{ riderPhotoLoading ? '正在加载现场照片…' : '暂无可用现场照片' }}</span><small>{{ selectedDeviceInfo?.latest_image_captured_ms ? `最新照片 · ${date(selectedDeviceInfo.latest_image_captured_ms)}` : '等待设备上传照片' }}</small></div>
+          <router-link class="camera-entry" :to="{ path: '/riderguard/camera', query: { device: selectedDevice } }">查看实时画面 ↗</router-link>
           <div v-if="eventAt" class="event-context"><b>事件轨迹 · {{ date(eventAt) }}</b><span>事发前后各 5 分钟</span><button v-if="eventId" type="button" @click="openEventCenter(eventId)">查看事件证据 ↗</button></div>
           <div v-if="trackError" class="track-notice" role="status">轨迹更新失败，保留上次结果。<button @click="loadSelectedTrack(selectedDevice)">重试</button></div>
           <div v-if="trackSegments.length > 1" class="track-notice">轨迹分为 {{ trackSegments.length }} 段，定位中断或异常跳点处未连线。</div>
@@ -695,6 +696,7 @@ h2 { margin-top: 5px; font-size: 20px; font-weight: 740; letter-spacing: -.025em
 .rider-status-line { display: flex; justify-content: space-between; align-items: center; margin: 12px 0; font-size: 12px; }
 .status-online { color: #287d57; }.status-offline { color: #6c7981; }
 .rider-limit { display: flex; gap: 8px; align-items: center; color: #66747b; font-size: 12px; }.rider-limit b { color: #26343b; }.rider-limit span { margin-left: auto; }
+.camera-entry { display: inline-flex; align-items: center; width: fit-content; color: #276f55; font-size: 12px; font-weight: 700; text-decoration: none; } .camera-entry:hover { text-decoration: underline; }
 .rider-photo { display: grid; gap: 7px; margin: 14px 0; padding: 8px; border-radius: 9px; background: #f1f4f3; color: #6c7981; font-size: 12px; }
 .rider-photo button { padding: 0; border: 0; background: transparent; cursor: zoom-in; }.rider-photo img { display: block; width: 100%; height: 135px; object-fit: contain; border-radius: 6px; background: #e7ecea; }.rider-photo small { font-size: 11px; }
 .fleet-search { margin: 8px 0; }
