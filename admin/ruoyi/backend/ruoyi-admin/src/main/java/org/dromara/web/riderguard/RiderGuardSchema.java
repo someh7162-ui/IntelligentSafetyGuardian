@@ -43,6 +43,7 @@ public class RiderGuardSchema {
               dense_streak INT NOT NULL DEFAULT 0,
               clear_streak INT NOT NULL DEFAULT 0,
               last_image_ms BIGINT NULL,
+              last_image_captured_ms BIGINT NULL,
               last_alert_ms BIGINT NULL,
               created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
               INDEX idx_rg_device_rider (rider_id)
@@ -145,6 +146,7 @@ public class RiderGuardSchema {
         applyVersion(1, "RiderGuard base schema", () -> {});
         applyVersion(2, "Traffic signal telemetry and events", this::migrateTrafficSignal);
         applyVersion(3, "Image-only crowd events", this::migrateCrowdEvents);
+        applyVersion(4, "Ordered live image state", this::migrateImageOrder);
     }
 
     private void applyVersion(int version, String description, Runnable upgrade) {
@@ -194,6 +196,10 @@ public class RiderGuardSchema {
         jdbc.execute("ALTER TABLE rg_event MODIFY speed_limit_kph DOUBLE NULL");
         if (!indexExists("rg_event", "uq_rg_event_image_type"))
             jdbc.execute("ALTER TABLE rg_event ADD UNIQUE KEY uq_rg_event_image_type (image_id,event_type)");
+    }
+
+    private void migrateImageOrder() {
+        addColumn("rg_device", "last_image_captured_ms", "BIGINT NULL");
     }
 
     private void addColumn(String table, String column, String definition) {

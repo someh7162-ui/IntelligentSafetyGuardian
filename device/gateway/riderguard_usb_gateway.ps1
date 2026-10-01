@@ -5,7 +5,8 @@ param(
     [string]$Endpoint = 'http://127.0.0.1:18766/prod-api/device/riderguard/image',
     [string]$GpsEndpoint = 'http://127.0.0.1:18766/prod-api/device/riderguard/telemetry',
     [int]$ImageIntervalMs = 4000,
-    [int]$GpsIntervalMs = 10000
+    [int]$GpsIntervalMs = 10000,
+    [int]$MaxImageAgeMs = 15000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -135,8 +136,8 @@ try {
     Write-Host "Reading $Port; forwarding JPEG and GNSS to RiderGuard. Press Ctrl+C to stop."
     while ($true) {
         $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        if ($null -ne $pending -and $nowMs - $pending.CapturedAtMs -gt 300000) {
-            Write-Warning "Discarding stale frame $($pending.FrameNumber) after five minutes offline."
+        if ($null -ne $pending -and $nowMs - $pending.CapturedAtMs -gt $MaxImageAgeMs) {
+            Write-Warning "Discarding stale frame $($pending.FrameNumber) after $MaxImageAgeMs ms."
             $pending = $null
         }
         if ($null -ne $gpsPending -and $nowMs - $gpsPending.CapturedAtMs -gt 300000) {

@@ -2,6 +2,8 @@
 
 当前链路：STM32F407 的 OV2640 JPEG 和 ATGM336H NMEA，经 USB CDC 到 Windows 网关；网关通过本机 SSH 端口转发到若依后端；后端调用服务器 wt 目录下的 YOLO 服务；单帧检测到至少 3 人时记录 `CROWD_DENSITY` 风险事件。GPS 室内无定位时上传 `gpsValid=false`，后台不展示虚构坐标或速度。
 
+实时风险仅由 15 秒内拍摄、且比该设备上一张已处理图片更新的帧改变。普通照片保存 3 天；关联风险事件的照片继续保留。服务器的 AI 适配器默认一次只向 YOLO 发送一张图片，GPU 模型需在确认服务器资源后单独启动。
+
 ## 源码位置
 
 - `device/firmware/stm32f407/`：STM32CubeIDE 工程，默认 `GNSS_TEST_MODE=0`，摄像头 JPEG 与 GPS RMC 同时通过 USB CDC 输出。GNSS 使用 USART2 9600 8N1，PA3 接模块 TX，PA2 接模块 RX。MPU6050 使用 I²C1 PB8/PB9，OV2640 使用 I²C2、DCMI 和 DMA。

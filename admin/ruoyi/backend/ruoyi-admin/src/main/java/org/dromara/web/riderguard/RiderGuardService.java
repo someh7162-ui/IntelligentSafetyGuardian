@@ -143,7 +143,10 @@ public class RiderGuardService {
             List<Map<String, Object>> existing = jdbc.queryForList("SELECT id,inference_status,person_count,UNIX_TIMESTAMP(created_at)*1000 AS created_ms FROM rg_image WHERE device_id=? AND sample_id=?", deviceId, sampleId);
             if (!existing.isEmpty()) {
                 Map<String, Object> previous = existing.getFirst();
-                if ("READY".equals(previous.get("inference_status"))) return previous;
+                if ("READY".equals(previous.get("inference_status")))
+                    return Map.of("imageId", number(previous.get("id"), 0), "personCount", number(previous.get("person_count"), 0), "status", "READY");
+                if ("STALE".equals(previous.get("inference_status")))
+                    return Map.of("imageId", number(previous.get("id"), 0), "status", "STALE");
                 imageId = number(previous.get("id"), 0);
                 if ("PROCESSING".equals(previous.get("inference_status")) &&
                     System.currentTimeMillis() - number(previous.get("created_ms"), 0) < 30000) {
@@ -161,6 +164,11 @@ public class RiderGuardService {
                 }
                 imageId = insertImage(deviceId, sampleId, capturedMs, fileName);
             }
+            long lastLiveCapturedMs = number(device(deviceId).get("last_image_captured_ms"), 0);
+            if (!RiderGuardFramePolicy.isLive(capturedMs, lastLiveCapturedMs, System.currentTimeMillis())) {
+                jdbc.update("UPDATE rg_image SET inference_status='STALE' WHERE id=?", imageId);
+                return Map.of("imageId", imageId, "status", "STALE");
+            }
             jdbc.update("UPDATE rg_image SET inference_status='PROCESSING' WHERE id=?", imageId);
         }
         long startedAt = System.nanoTime();
@@ -177,7 +185,10 @@ public class RiderGuardService {
             String mode = payload.path("mode").asText("unknown");
             jdbc.update("UPDATE rg_image SET person_count=?,inference_status='READY',inference_mode=? WHERE id=?", count, mode, imageId);
             boolean enteredCrowd;
-            synchronized (this) { enteredCrowd = updateCrowd(deviceId, count); }
+            synchronized (this) {
+                enteredCrowd = RiderGuardFramePolicy.isLive(capturedMs, 0, System.currentTimeMillis())
+                    && updateCrowd(deviceId, count, capturedMs);
+            }
             if (enteredCrowd) {
                 jdbc.update("INSERT IGNORE INTO rg_event (device_id,track_id,image_id,event_type,crowd_mode,speed_kph,speed_limit_kph,is_mock,lat,lng,captured_ms) VALUES (?,NULL,?,'CROWD_DENSITY',TRUE,NULL,NULL,?,NULL,NULL,?)",
                     deviceId, imageId, "mock".equalsIgnoreCase(mode), capturedMs);
@@ -199,8 +210,9 @@ public class RiderGuardService {
         }
     }
 
-    private boolean updateCrowd(String deviceId, int people) {
+    private boolean updateCrowd(String deviceId, int people, long capturedMs) {
         Map<String, Object> d = device(deviceId);
+        if (capturedMs <= number(d.get("last_image_captured_ms"), 0)) return false;
         boolean dense = people >= number(policy().get("crowd_person_count"), 3);
         int denseStreak = dense ? (int) number(d.get("dense_streak"), 0) + 1 : 0;
         int clearStreak = dense ? 0 : (int) number(d.get("clear_streak"), 0) + 1;
@@ -208,8 +220,8 @@ public class RiderGuardService {
         boolean enteredCrowd = dense && !crowd;
         if (dense) crowd = true;
         if (clearStreak >= 3) crowd = false;
-        jdbc.update("UPDATE rg_device SET dense_streak=?,clear_streak=?,crowd_mode=?,last_image_ms=?,last_seen_ms=? WHERE device_id=?",
-            denseStreak, clearStreak, crowd, System.currentTimeMillis(), System.currentTimeMillis(), deviceId);
+        jdbc.update("UPDATE rg_device SET dense_streak=?,clear_streak=?,crowd_mode=?,last_image_ms=?,last_image_captured_ms=?,last_seen_ms=? WHERE device_id=?",
+            denseStreak, clearStreak, crowd, System.currentTimeMillis(), capturedMs, System.currentTimeMillis(), deviceId);
         return enteredCrowd;
     }
 

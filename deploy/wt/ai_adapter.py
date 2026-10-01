@@ -1,12 +1,20 @@
 """RiderGuard crowd contract backed by the existing local YOLO service."""
 import hmac
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import BoundedSemaphore, Lock
 from urllib.request import Request, urlopen
 
-KEY = Path('/home/teach/wt/riderguard/config/ai-key').read_text().strip()
-YOLO_URL = 'http://127.0.0.1:18765/infer'
+KEY = Path(os.getenv('RIDERGUARD_AI_KEY_FILE', '/home/teach/wt/riderguard/config/ai-key')).read_text().strip()
+YOLO_URL = os.getenv('RIDERGUARD_YOLO_URL', 'http://127.0.0.1:18765/infer')
+MAX_INFLIGHT = int(os.getenv('RIDERGUARD_AI_MAX_INFLIGHT', '1'))
+if not KEY or not 1 <= MAX_INFLIGHT <= 4:
+    raise ValueError('AI key must be set and max concurrent inference must be between 1 and 4')
+INFERENCE_SLOTS = BoundedSemaphore(MAX_INFLIGHT)
+ACTIVE_LOCK = Lock()
+ACTIVE = 0
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, payload):
@@ -19,7 +27,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/health':
-            self.reply(200, {'status': 'ok', 'mode': 'yolo'})
+            with ACTIVE_LOCK:
+                active = ACTIVE
+            self.reply(200, {'status': 'ok', 'mode': 'yolo',
+                             'inFlight': active, 'maxInFlight': MAX_INFLIGHT})
         else:
             self.reply(404, {'error': 'not found'})
 
@@ -41,6 +52,12 @@ class Handler(BaseHTTPRequestHandler):
         if not (image.startswith(b'\xff\xd8') and image.endswith(b'\xff\xd9')):
             self.reply(400, {'error': 'invalid JPEG'})
             return
+        if not INFERENCE_SLOTS.acquire(blocking=False):
+            self.reply(429, {'error': 'inference busy; retry later'})
+            return
+        global ACTIVE
+        with ACTIVE_LOCK:
+            ACTIVE += 1
         try:
             request = Request(YOLO_URL, data=image, headers={'Content-Type': 'image/jpeg'})
             with urlopen(request, timeout=6) as response:
@@ -52,6 +69,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'personCount': count, 'mode': 'yolo'})
         except Exception as error:
             self.reply(502, {'error': type(error).__name__})
+        finally:
+            with ACTIVE_LOCK:
+                ACTIVE -= 1
+            INFERENCE_SLOTS.release()
 
 if __name__ == '__main__':
     ThreadingHTTPServer(('127.0.0.1', 8091), Handler).serve_forever()

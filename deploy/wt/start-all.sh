@@ -18,6 +18,13 @@ wait_for_port() {
     return 1
 }
 
+# The YOLO process can allocate shared GPU memory. Start it separately only
+# after checking the host's running GPU workloads and available capacity.
+if ! listening 18765; then
+    echo 'YOLO is not listening on 127.0.0.1:18765; start it explicitly after checking GPU capacity.' >&2
+    exit 1
+fi
+
 if ! listening 33306; then
     nohup runtime/mysql/mysqld --no-defaults --user=teach \
         --datadir="$root/mysql/datadir" --socket="$root/mysql/mysql.sock" \
@@ -34,11 +41,6 @@ if ! listening 16379; then
         runtime/redis/usr/bin/redis-server config/redis.conf
 fi
 wait_for_port 16379
-
-if ! listening 18765; then
-    /home/teach/wt/yolo_service/start.sh
-fi
-wait_for_port 18765 60
 
 if ! listening 8091; then
     nohup python3 ai_adapter.py > logs/ai-adapter.log 2>&1 < /dev/null &
