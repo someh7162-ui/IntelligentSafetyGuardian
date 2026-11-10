@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:riderguard:telemetry:v1",
+  "title": "RiderGuard official device telemetry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deviceId", "sampleId", "capturedAtMs", "latitude", "longitude", "speedKph", "gpsValid"],
+  "properties": {
+    "deviceId": {"type": "string", "pattern": "^[A-Za-z0-9_-]{3,64}$"},
+    "sampleId": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,80}$"},
+    "capturedAtMs": {"type": "integer", "minimum": 1, "description": "Trusted Unix milliseconds; not MCU uptime. Server accepts at most 24h old or 5min future samples."},
+    "latitude": {"type": ["number", "null"], "minimum": -90, "maximum": 90},
+    "longitude": {"type": ["number", "null"], "minimum": -180, "maximum": 180},
+    "speedKph": {"type": "number", "minimum": 0, "maximum": 150},
+    "heading": {"type": ["number", "null"], "minimum": 0, "exclusiveMaximum": 360},
+    "gpsAccuracy": {"type": ["number", "null"], "minimum": 0, "maximum": 10000},
+    "gpsValid": {"type": "boolean"}
+  },
+  "allOf": [{
+    "if": {"properties": {"gpsValid": {"const": true}}},
+    "then": {"properties": {"latitude": {"type": "number"}, "longitude": {"type": "number"}}},
+    "else": {"properties": {"latitude": {"type": "null"}, "longitude": {"type": "null"}}}
+  }]
+}

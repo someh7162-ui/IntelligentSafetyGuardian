@@ -147,6 +147,7 @@ public class RiderGuardSchema {
         applyVersion(2, "Traffic signal telemetry and events", this::migrateTrafficSignal);
         applyVersion(3, "Image-only crowd events", this::migrateCrowdEvents);
         applyVersion(4, "Ordered live image state", this::migrateImageOrder);
+        applyVersion(5, "Separate GPS and coarse cell location", this::migrateLocationSource);
     }
 
     private void applyVersion(int version, String description, Runnable upgrade) {
@@ -200,6 +201,13 @@ public class RiderGuardSchema {
 
     private void migrateImageOrder() {
         addColumn("rg_device", "last_image_captured_ms", "BIGINT NULL");
+    }
+
+    private void migrateLocationSource() {
+        for (String table : new String[] {"rg_device", "rg_track"}) {
+            addColumn(table, "location_source", "VARCHAR(16) NOT NULL DEFAULT 'NONE'");
+            addColumn(table, "location_observed_ms", "BIGINT NULL");
+        }
     }
 
     private void addColumn(String table, String column, String definition) {

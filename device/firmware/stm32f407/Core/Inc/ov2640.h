@@ -60,6 +60,8 @@ HAL_StatusTypeDef OV2640_ReadExposure(OV2640_Handle_t *camera,
                                       OV2640_Exposure_t *exposure);
 HAL_StatusTypeDef OV2640_CaptureJPEG(OV2640_Handle_t *camera,
                                      OV2640_JPEGFrame_t *frame);
+HAL_StatusTypeDef OV2640_StartJPEG(OV2640_Handle_t *camera);
+HAL_StatusTypeDef OV2640_PollJPEG(OV2640_Handle_t *camera, OV2640_JPEGFrame_t *frame);
 
 uint8_t OV2640_IsReady(const OV2640_Handle_t *camera);
 

@@ -1,62 +1,37 @@
 #include "usb_stream.h"
+#include "usb_device.h"
 #include "usbd_cdc_if.h"
 #include <string.h>
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
-#define USB_STREAM_CHUNK_SIZE 256U
-
-void USB_Stream_Print(const char *str)
-{
-    uint32_t start;
-    uint16_t len;
-
-    if (str == NULL)
-    {
-        return;
-    }
-
-    start = HAL_GetTick();
-    len = (uint16_t)strlen(str);
-
-    while (CDC_Transmit_FS((uint8_t *)str, len) == USBD_BUSY)
-    {
-        if ((HAL_GetTick() - start) > 100U)
-        {
-            return;
-        }
-        HAL_Delay(1);
-    }
-
-    HAL_Delay(2);
+static uint8_t staging[256];
+uint8_t USB_Stream_Connected(void) {
+    return hUsbDeviceFS.dev_state==USBD_STATE_CONFIGURED && hUsbDeviceFS.pClassData!=NULL;
 }
-
-HAL_StatusTypeDef USB_Stream_SendBytes(const uint8_t *data, uint32_t length)
-{
-    uint32_t offset = 0U;
-
-    if ((data == NULL) || (length == 0U))
-    {
-        return HAL_ERROR;
-    }
-
-    while (offset < length)
-    {
-        uint16_t chunk = (uint16_t)(((length - offset) > USB_STREAM_CHUNK_SIZE)
-                                  ? USB_STREAM_CHUNK_SIZE
-                                  : (length - offset));
-        uint32_t start = HAL_GetTick();
-
-        while (CDC_Transmit_FS((uint8_t *)&data[offset], chunk) == USBD_BUSY)
-        {
-            if ((HAL_GetTick() - start) > 500U)
-            {
-                return HAL_TIMEOUT;
-            }
-            HAL_Delay(1);
-        }
-
-        offset += chunk;
+static HAL_StatusTypeDef wait_idle(void) {
+    uint32_t start=HAL_GetTick();
+    while(USB_Stream_Connected()) {
+        USBD_CDC_HandleTypeDef *cdc=(USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData;
+        if(cdc->TxState==0) return HAL_OK;
+        if((uint32_t)(HAL_GetTick()-start)>=100u) return HAL_TIMEOUT;
         HAL_Delay(1);
     }
-
+    return HAL_ERROR;
+}
+HAL_StatusTypeDef USB_Stream_SendBytes(const uint8_t *data,uint32_t length) {
+    if(data==NULL || length==0 || !USB_Stream_Connected()) return HAL_ERROR;
+    while(length) {
+        HAL_StatusTypeDef status=wait_idle();
+        if(status!=HAL_OK) return status;
+        uint16_t count=(uint16_t)(length>sizeof staging?sizeof staging:length);
+        memcpy(staging,data,count);
+        if(CDC_Transmit_FS(staging,count)!=USBD_OK) return HAL_ERROR;
+        status=wait_idle();
+        if(status!=HAL_OK) return status;
+        data+=count; length-=count;
+    }
     return HAL_OK;
+}
+void USB_Stream_Print(const char *text) {
+    if(text && USB_Stream_Connected()) (void)USB_Stream_SendBytes((const uint8_t *)text,(uint32_t)strlen(text));
 }

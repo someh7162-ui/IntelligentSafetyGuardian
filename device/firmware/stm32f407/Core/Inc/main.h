@@ -57,12 +57,11 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LED_Pin GPIO_PIN_1
-#define LED_GPIO_Port GPIOA
+/* PA1 is UART4_RX; never configure it as the onboard LED in V1.2. */
 #define CAM_RST_Pin GPIO_PIN_0
-#define CAM_RST_GPIO_Port GPIOB
+#define CAM_RST_GPIO_Port GPIOC
 #define CAM_PWDN_Pin GPIO_PIN_1
-#define CAM_PWDN_GPIO_Port GPIOB
+#define CAM_PWDN_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 

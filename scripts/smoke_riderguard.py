@@ -127,6 +127,13 @@ def main() -> None:
         with db.cursor() as cursor:
             cursor.execute("INSERT INTO rg_device (device_id,token_hash) VALUES (%s,%s)",
                            (device_id, hashlib.sha256(token.encode()).hexdigest()))
+        anonymous = telemetry_item(device_id, 0, 18, 34.2304, 108.9342)
+        try:
+            urllib.request.urlopen(urllib.request.Request(args.base_url + '/device/riderguard/telemetry',
+                data=base64.b64decode(anonymous['body']), headers={'Content-Type': 'application/json'}, method='POST'))
+            raise AssertionError('missing device token was accepted')
+        except urllib.error.HTTPError as error:
+            check(error.code == 401, 'missing token returns HTTP 401')
         try:
             send(args.base_url, "invalid", telemetry_item(device_id, 0, 18, 34.2304, 108.9342))
             raise AssertionError("invalid device token was accepted")
@@ -152,9 +159,11 @@ def main() -> None:
         with db.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM rg_track WHERE device_id=%s", (device_id,))
             check(cursor.fetchone()[0] == 3, "duplicate telemetry is idempotent")
-            cursor.execute("SELECT COUNT(*),MIN(image_id) FROM rg_event WHERE device_id=%s", (device_id,))
+            cursor.execute("SELECT COUNT(*),MIN(image_id) FROM rg_event WHERE device_id=%s AND event_type='OVERSPEED'", (device_id,))
             count, image_id = cursor.fetchone()
             check(count == 1 and image_id is not None, "one event contains photo evidence")
+            cursor.execute("SELECT COUNT(*) FROM rg_event WHERE device_id=%s AND event_type='CROWD_DENSITY'", (device_id,))
+            check(cursor.fetchone()[0] == 1, "crowd entry is stored separately from the overspeed event")
             cursor.execute("SELECT gps_valid,lat,lng FROM rg_track WHERE device_id=%s AND sample_id=%s",
                            (device_id, payload["sampleId"]))
             gps_valid, lat, lng = cursor.fetchone()

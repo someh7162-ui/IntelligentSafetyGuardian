@@ -4,7 +4,7 @@
       <div>
         <span class="eyebrow">RIDER CAMERA</span>
         <h1>骑手实时画面</h1>
-        <p>选择骑手查看设备最近上传的照片。页面每 2 秒检查新帧，当前 USB 网关约每 4 秒上传一张 JPEG。</p>
+        <p>选择骑手查看设备最近上传的照片。页面约每 3 秒检查新帧，设备每 30 秒上传一张照片；有新照片时更新画面。</p>
       </div>
       <div class="header-actions">
         <el-switch v-model="autoRefresh" active-text="自动刷新" />
@@ -41,6 +41,7 @@
             <div v-if="loadingFrame && frameUrl" class="image-loading">正在加载新画面…</div>
           </div>
           <div class="viewer-foot">
+            <span v-if="selectedDevice.inference_status === 'SKIPPED'">图片已保存 · 识别未启用 · 人数 —</span>
             <span>拍摄时间：{{ frameCapturedMs ? formatTime(frameCapturedMs) : '暂无' }}</span>
             <span>距今：{{ frameCapturedMs ? `${Math.max(0, Math.floor((nowMs - frameCapturedMs) / 1000))} 秒` : '—' }}</span>
             <span v-if="frameError" class="error">新画面读取失败，正在显示上一帧</span>
@@ -57,7 +58,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getDevices, getEvidenceImage } from '@/api/riderguard';
+import { getDevices, getEvidenceImage, getPolicy } from '@/api/riderguard';
 import type { Device } from '@/api/riderguard';
 
 const route = useRoute();
@@ -77,7 +78,8 @@ const selectedDevice = computed(() => devices.value.find(device => device.device
 const filteredDevices = computed(() => devices.value.filter(device =>
   `${device.rider_name || ''} ${device.device_id}`.toLowerCase().includes(search.value.trim().toLowerCase())
 ));
-const imageFresh = computed(() => Boolean(frameCapturedMs.value && nowMs.value - frameCapturedMs.value < 15000));
+const imageStaleAfterMs = ref(90000);
+const imageFresh = computed(() => Boolean(frameCapturedMs.value && nowMs.value - frameCapturedMs.value < imageStaleAfterMs.value));
 const isOnline = (device: Device) => Boolean(device.last_seen_ms && nowMs.value - device.last_seen_ms < 15000);
 const formatTime = (ms: number) => new Date(ms).toLocaleString('zh-CN', { hour12: false });
 let interval: ReturnType<typeof setInterval> | undefined;
@@ -146,12 +148,13 @@ function onVisibilityChange() {
 }
 watch(autoRefresh, enabled => { if (enabled) void refresh(); });
 onMounted(() => {
+  void getPolicy().then(response => { imageStaleAfterMs.value = response.data.vision_stale_after_ms || 90000; });
   if (typeof route.query.device === 'string') selectedId.value = route.query.device;
   void refresh();
   interval = setInterval(() => {
     nowMs.value = Date.now();
     if (autoRefresh.value && !document.hidden) void refresh();
-  }, 2000);
+  }, 3000);
   document.addEventListener('visibilitychange', onVisibilityChange);
 });
 onUnmounted(() => {

@@ -57,3 +57,18 @@ device/gateway/riderguard-device-token.txt
 device/firmware/stm32f407/Debug/
 device/firmware/stm32f407/Release/
 device/firmware/stm32f407/Firmware/
+
+# Enterprise local builds, private provisioning, hardware dumps and runtime data
+**/IntegrationWork/enterprise/build*/
+**/enterprise_private.h
+**/enterprise.local.json
+**/device-private*.json
+**/flash-backup*/
+*.o
+*.elf
+*.map
+*.d
+*.su
+*.stackusage
+*.ioc.bak
+~$*

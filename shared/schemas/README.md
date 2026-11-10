@@ -1,8 +1,9 @@
-# 共享数据协议
+# 正式共享协议
 
-建议所有跨服务报文使用 JSON，并在这里维护版本化 schema。第一批协议：
+当前硬件与正式若依后台统一采用：
 
-- `location_event.json`：设备定位和速度上报
-- `risk_event.json`：风险事件及 AI 分析结果
-- `device_telemetry.json`：设备在线、电量和传感器状态
+- `riderguard-telemetry-v1.schema.json`：定位、速度、采样编号、采集时间与 GPS 有效性。
+- 图片接口使用 multipart，字段固定为 `deviceId`、`sampleId`、`capturedAtMs`、`image`。
+- 两个设备接口都要求 `X-Device-Token`，公网 HTTPS、本机回环允许 HTTP。
 
+接口及本机网页测试步骤见 [本机硬件联调](../../docs/RiderGuard_本机硬件联调.md)。旧原型 `location_event` 等示例不作为正式设备接口契约。LBS、IMU 与电量后续按版本扩展，不混入 GPS 有效坐标。

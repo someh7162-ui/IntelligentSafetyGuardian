@@ -1,0 +1,13 @@
+* text=auto
+*.doc binary
+*.docx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.bin binary
+*.woff binary
+*.woff2 binary

@@ -13,14 +13,15 @@ extern "C" {
 /*
  * Initialize the GNSS driver.
  * For this project:
- *   ATGM336H TX -> PA3 / USART2_RX
- *   ATGM336H RX -> PA2 / USART2_TX
- *   USART2      -> 9600 8N1
+ *   ATGM336H TX -> PA1 / UART4_RX
+ *   ATGM336H RX -> PA0 / UART4_TX
+ *   UART4       -> 9600 8N1
  */
+extern volatile uint32_t gnss_rx_bytes, gnss_rx_errors, gnss_rx_overruns;
 void GNSS_Init(UART_HandleTypeDef *huart);
 
 /*
- * Drain bytes collected by the USART2 receive interrupt and assemble NMEA
+ * Drain bytes collected by the UART4 receive interrupt and assemble NMEA
  * sentences. Safe to call between camera captures and USB transfers.
  *
  * Return:

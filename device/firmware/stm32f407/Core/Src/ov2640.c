@@ -445,6 +445,31 @@ HAL_StatusTypeDef OV2640_Begin(OV2640_Handle_t *camera,
     return HAL_OK;
 }
 
+static uint32_t s_capture_started;
+static uint8_t s_capture_active;
+HAL_StatusTypeDef OV2640_StartJPEG(OV2640_Handle_t *camera)
+{
+    if (!camera || !camera->ready || !camera->hdcmi || !camera->hdma_dcmi || s_capture_active) return HAL_BUSY;
+    memset(s_jpeg_buffer,0,sizeof s_jpeg_buffer);
+    camera->hdcmi->ErrorCode=HAL_DCMI_ERROR_NONE;
+    __HAL_DCMI_DISABLE_IT(camera->hdcmi,DCMI_IT_LINE | DCMI_IT_VSYNC);
+    HAL_StatusTypeDef result=HAL_DCMI_Start_DMA(camera->hdcmi,DCMI_MODE_SNAPSHOT,(uint32_t)s_jpeg_buffer,OV2640_JPEG_BUFFER_WORDS);
+    if(result==HAL_OK){s_capture_started=HAL_GetTick();s_capture_active=1;}
+    return result;
+}
+HAL_StatusTypeDef OV2640_PollJPEG(OV2640_Handle_t *camera, OV2640_JPEGFrame_t *frame)
+{
+    if(!camera || !frame || !s_capture_active)return HAL_ERROR;
+    uint32_t remaining=__HAL_DMA_GET_COUNTER(camera->hdma_dcmi);
+    if(camera->hdcmi->ErrorCode==HAL_DCMI_ERROR_NONE && remaining>0 &&
+        (uint32_t)(HAL_GetTick()-s_capture_started)<OV2640_CAPTURE_WAIT_MS)return HAL_BUSY;
+    HAL_DCMI_Stop(camera->hdcmi);s_capture_active=0;memset(frame,0,sizeof *frame);
+    frame->dcmi_error=camera->hdcmi->ErrorCode;
+    frame->captured_bytes=(OV2640_JPEG_BUFFER_WORDS-(remaining>OV2640_JPEG_BUFFER_WORDS?OV2640_JPEG_BUFFER_WORDS:remaining))*4U;
+    uint32_t offset=0,length=0;
+    if(frame->dcmi_error || !OV2640_FindJPEG((const uint8_t*)s_jpeg_buffer,frame->captured_bytes,&offset,&length))return HAL_ERROR;
+    frame->data=((const uint8_t*)s_jpeg_buffer)+offset;frame->length=length;return HAL_OK;
+}
 HAL_StatusTypeDef OV2640_CaptureJPEG(OV2640_Handle_t *camera,
                                      OV2640_JPEGFrame_t *frame)
 {

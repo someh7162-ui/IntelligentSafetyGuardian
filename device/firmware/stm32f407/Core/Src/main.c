@@ -1,394 +1,40 @@
-/* USER CODE BEGIN Header */
-
-/**
-
-  ******************************************************************************
-
-  * @file           : main.c
-
-  * @brief          : IntelligentSafetyGuardian modular hardware application
-
-  ******************************************************************************
-
-  */
-
-/* USER CODE END Header */
-
-/* Includes ------------------------------------------------------------------*/
-
+/* RiderGuard hardware bring-up, wiring table V1.2, 2026-11-04. */
 #include "main.h"
-
 #include "usb_device.h"
-
-
-
-/* Private includes ----------------------------------------------------------*/
-
-/* USER CODE BEGIN Includes */
-#include "ov2640.h"
-#include "mpu6050.h"
 #include "usb_stream.h"
 #include "gnss.h"
+#include "ov2640.h"
+#include "mpu6050.h"
+#include "bringup_v12.h"
+#include "dfplayer_frame.h"
+#include "rg_gps.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-/* USER CODE END Includes */
-
-
-
-/* Private typedef -----------------------------------------------------------*/
-
-/* USER CODE BEGIN PTD */
-/* Drivers own their private types. */
-/* USER CODE END PTD */
-
-
-
-/* Private define ------------------------------------------------------------*/
-
-/* USER CODE BEGIN PD */
-#define CONTINUOUS_CAPTURE_DELAY_MS 1000U
-#define GNSS_TEST_MODE 0U /* 1: print raw NMEA only; 0: normal camera firmware */
-/* USER CODE END PD */
-
-
-
-/* Private macro -------------------------------------------------------------*/
-
-/* USER CODE BEGIN PM */
-
-
-
-/* USER CODE END PM */
-
-
-
-/* Private variables ---------------------------------------------------------*/
 
 DCMI_HandleTypeDef hdcmi;
-
 DMA_HandleTypeDef hdma_dcmi;
-
-
-
-I2C_HandleTypeDef hi2c1;
-
-I2C_HandleTypeDef hi2c2;
-
-UART_HandleTypeDef huart2;
-
-
-
-/* USER CODE BEGIN PV */
+I2C_HandleTypeDef hi2c1, hi2c2;
+UART_HandleTypeDef huart4;
 OV2640_Handle_t camera;
 OV2640_JPEGFrame_t camera_frame;
 OV2640_Exposure_t camera_exposure;
-
 MPU6050_Data_t mpu_data;
-uint8_t mpu_who_am_i = 0U;
-uint8_t mpu_ready = 0U;
-
-char usb_msg[256];
-uint32_t frame_number = 0U;
-char gnss_line[GNSS_LINE_BUFFER_SIZE];
-/* USER CODE END PV */
-
-
-
-/* Private function prototypes -----------------------------------------------*/
-
+uint8_t mpu_who_am_i, mpu_ready;
+char usb_msg[256], gnss_line[GNSS_LINE_BUFFER_SIZE];
+uint32_t frame_number;
 void SystemClock_Config(void);
-
 static void MX_GPIO_Init(void);
-
 static void MX_DMA_Init(void);
-
-static void MX_I2C2_Init(void);
-
 static void MX_I2C1_Init(void);
-
+static void MX_I2C2_Init(void);
 static void MX_DCMI_Init(void);
-
-static void MX_USART2_UART_Init(void);
-
-/* USER CODE BEGIN PFP */
-static void GNSS_Pump(void);
-/* USER CODE END PFP */
-
-
-
-/* Private user code ---------------------------------------------------------*/
-
-/* USER CODE BEGIN 0 */
-static void GNSS_Pump(void)
-{
-  while (GNSS_Task(gnss_line, sizeof(gnss_line)))
-  {
-    if (gnss_line[0] == '$' && strlen(gnss_line) >= 7U &&
-        (memcmp(&gnss_line[3], "RMC", 3U) == 0 ||
-         memcmp(&gnss_line[3], "GGA", 3U) == 0))
-    {
-      USB_Stream_Print("GPS_NMEA ");
-      USB_Stream_Print(gnss_line);
-      USB_Stream_Print("\r\n");
-    }
-  }
-}
-/* USER CODE END 0 */
-
-
-
-/**
-
-  * @brief  The application entry point.
-
-  * @retval int
-
-  */
-
-int main(void)
-
-{
-
-
-
-  /* USER CODE BEGIN 1 */
-HAL_StatusTypeDef status;
-/* USER CODE END 1 */
-
-
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-
-  HAL_Init();
-
-
-
-  /* USER CODE BEGIN Init */
-
-
-
-  /* USER CODE END Init */
-
-
-
-  /* Configure the system clock */
-
-  SystemClock_Config();
-
-
-
-  /* USER CODE BEGIN SysInit */
-
-
-
-  /* USER CODE END SysInit */
-
-
-
-  /* Initialize all configured peripherals */
-
-  MX_GPIO_Init();
-
-  MX_DMA_Init();
-
-  MX_USB_DEVICE_Init();
-
-  MX_I2C2_Init();
-
-  MX_DCMI_Init();
-
-  MX_I2C1_Init();
-
-  MX_USART2_UART_Init();
-
-  /* USER CODE BEGIN 2 */
-
-  /* Give Windows enough time to enumerate USB CDC. */
-  HAL_Delay(8000);
-
-  USB_Stream_Print("\r\n");
-  USB_Stream_Print("===============================================\r\n");
-  USB_Stream_Print("IntelligentSafetyGuardian hardware bring-up\r\n");
-  USB_Stream_Print("===============================================\r\n");
-  GNSS_Init(&huart2);
-
-#if GNSS_TEST_MODE
-  /*
-   * GPS bring-up mode.
-   * Camera and MPU application code below are intentionally not reached
-   * while this test loop is active, so USB output contains clean NMEA text.
-   */
-  USB_Stream_Print("GNSS TEST MODE\r\n");
-  USB_Stream_Print("ATGM336H | USART2 | PA2=TX PA3=RX | 9600 8N1\r\n");
-  USB_Stream_Print("Waiting for NMEA sentences...\r\n");
-  USB_Stream_Print("-----------------------------------------------\r\n");
-
-  while (1)
-  {
-    if (GNSS_Task(gnss_line, sizeof(gnss_line)))
-    {
-      USB_Stream_Print(gnss_line);
-      USB_Stream_Print("\r\n");
-    }
-  }
+static void MX_UART4_UART_Init(void);
+#ifdef RG_ENTERPRISE_BUILD
+#include "enterprise_app.inc"
+#else
+#include "bringup_v12.inc"
 #endif
-
-  /* MPU6050 lives on I2C1 (PB8/PB9). */
-  status = MPU6050_Init(&hi2c1);
-  if (status == HAL_OK)
-  {
-    if (MPU6050_ReadWhoAmI(&mpu_who_am_i) == HAL_OK)
-    {
-      snprintf(usb_msg, sizeof(usb_msg),
-               "MPU6050 OK | WHO_AM_I=0x%02X\r\n",
-               mpu_who_am_i);
-      USB_Stream_Print(usb_msg);
-      mpu_ready = 1U;
-    }
-  }
-  else
-  {
-    snprintf(usb_msg, sizeof(usb_msg),
-             "MPU6050 INIT FAILED | HAL=%d\r\n", status);
-    USB_Stream_Print(usb_msg);
-  }
-
-  /* OV2640 lives on I2C2 + DCMI + DMA2 Stream1. */
-  USB_Stream_Print("Starting OV2640...\r\n");
-  status = OV2640_Begin(&camera, &hi2c2, &hdcmi, &hdma_dcmi);
-
-  snprintf(usb_msg, sizeof(usb_msg),
-           "OV2640 ID | MID=%02X%02X PID=%02X%02X\r\n",
-           camera.midh, camera.midl, camera.pidh, camera.pidl);
-  USB_Stream_Print(usb_msg);
-
-  if (status == HAL_OK)
-  {
-    USB_Stream_Print("OV2640 JPEG QVGA READY.\r\n");
-
-    if (camera.warmup_status != HAL_OK)
-    {
-      USB_Stream_Print("WARNING: OV2640 warm-up timed out; capture will still run.\r\n");
-    }
-
-    if (OV2640_ReadExposure(&camera, &camera_exposure) == HAL_OK)
-    {
-      snprintf(usb_msg, sizeof(usb_msg),
-               "Exposure | COM8=%02X COM9=%02X GAIN=%02X AEC=%02X\r\n",
-               camera_exposure.com8,
-               camera_exposure.com9,
-               camera_exposure.gain,
-               camera_exposure.aec);
-      USB_Stream_Print(usb_msg);
-    }
-  }
-  else
-  {
-    snprintf(usb_msg, sizeof(usb_msg),
-             "OV2640 INIT FAILED | HAL=%d | table=%u reg=%02X val=%02X\r\n",
-             status,
-             camera.table_fail_index,
-             camera.table_fail_reg,
-             camera.table_fail_val);
-    USB_Stream_Print(usb_msg);
-  }
-
-/* USER CODE END 2 */
-
-
-
-  /* Infinite loop */
-
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-
-    if (OV2640_IsReady(&camera))
-    {
-      frame_number++;
-      status = OV2640_CaptureJPEG(&camera, &camera_frame);
-
-      if (status == HAL_OK)
-      {
-        snprintf(usb_msg, sizeof(usb_msg),
-                 "FRAME %lu: JPEG OK | DMA=%lu | JPEG=%lu | ERR=0x%08lX\r\n",
-                 (unsigned long)frame_number,
-                 (unsigned long)camera_frame.captured_bytes,
-                 (unsigned long)camera_frame.length,
-                 (unsigned long)camera_frame.dcmi_error);
-        USB_Stream_Print(usb_msg);
-
-        snprintf(usb_msg, sizeof(usb_msg),
-                 "JPEG_TX_BEGIN LEN=%lu\r\n",
-                 (unsigned long)camera_frame.length);
-        USB_Stream_Print(usb_msg);
-        HAL_Delay(20);
-
-        status = USB_Stream_SendBytes(camera_frame.data, camera_frame.length);
-
-        HAL_Delay(20);
-        if (status == HAL_OK)
-        {
-          USB_Stream_Print("\r\nJPEG_TX_END\r\n");
-        }
-        else
-        {
-          USB_Stream_Print("\r\nJPEG_TX_ERROR\r\n");
-        }
-      }
-      else
-      {
-        snprintf(usb_msg, sizeof(usb_msg),
-                 "FRAME %lu: CAPTURE FAILED | HAL=%d | DMA=%lu | ERR=0x%08lX\r\n",
-                 (unsigned long)frame_number,
-                 status,
-                 (unsigned long)camera_frame.captured_bytes,
-                 (unsigned long)camera_frame.dcmi_error);
-        USB_Stream_Print(usb_msg);
-      }
-    }
-
-    /* For now MPU6050 is initialized but not streamed continuously so JPEG framing stays clean. */
-    (void)mpu_ready;
-    (void)mpu_data;
-
-    {
-      uint32_t wait_start = HAL_GetTick();
-      do
-      {
-        GNSS_Pump();
-        HAL_Delay(10);
-      } while ((HAL_GetTick() - wait_start) < CONTINUOUS_CAPTURE_DELAY_MS);
-    }
-/* USER CODE END WHILE */
-
-
-
-    /* USER CODE BEGIN 3 */
-
-    }
-
-
-
-  /* USER CODE END 3 */
-
-}
-
-
-
-/**
-
-  * @brief System Clock Configuration
-
-  * @retval None
-
-  */
 
 void SystemClock_Config(void)
 
@@ -641,37 +287,37 @@ static void MX_I2C2_Init(void)
 
 
 /**
-  * @brief USART2 Initialization Function
+  * @brief UART4 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART2_UART_Init(void)
+static void MX_UART4_UART_Init(void)
 {
-  /* USER CODE BEGIN USART2_Init 0 */
+  /* USER CODE BEGIN UART4_Init 0 */
 
-  /* USER CODE END USART2_Init 0 */
+  /* USER CODE END UART4_Init 0 */
 
-  /* USER CODE BEGIN USART2_Init 1 */
+  /* USER CODE BEGIN UART4_Init 1 */
 
-  /* USER CODE END USART2_Init 1 */
+  /* USER CODE END UART4_Init 1 */
 
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 9600;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
 
-  if (HAL_UART_Init(&huart2) != HAL_OK)
+  if (HAL_UART_Init(&huart4) != HAL_OK)
   {
     Error_Handler();
   }
 
-  /* USER CODE BEGIN USART2_Init 2 */
+  /* USER CODE BEGIN UART4_Init 2 */
 
-  /* USER CODE END USART2_Init 2 */
+  /* USER CODE END UART4_Init 2 */
 }
 
 
@@ -718,85 +364,17 @@ static void MX_DMA_Init(void)
   */
 
 static void MX_GPIO_Init(void)
-
 {
-
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-
-
-  /* GPIO Ports Clock Enable */
-
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-
-
-
-  /*Configure GPIO pin Output Level */
-
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-
-
-
-  /*Configure GPIO pin Output Level */
-
-  HAL_GPIO_WritePin(CAM_RST_GPIO_Port, CAM_RST_Pin, GPIO_PIN_SET);
-
-
-
-  /*Configure GPIO pin Output Level */
-
-  HAL_GPIO_WritePin(CAM_PWDN_GPIO_Port, CAM_PWDN_Pin, GPIO_PIN_RESET);
-
-
-
-  /*Configure GPIO pin : LED_Pin */
-
-  GPIO_InitStruct.Pin = LED_Pin;
-
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-
-  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
-
-
-
-  /*Configure GPIO pins : CAM_RST_Pin CAM_PWDN_Pin */
-
-  GPIO_InitStruct.Pin = CAM_RST_Pin|CAM_PWDN_Pin;
-
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-
-
-  /* USER CODE END MX_GPIO_Init_2 */
-
+  GPIO_InitTypeDef gpio={0};
+  __HAL_RCC_GPIOA_CLK_ENABLE(); __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE(); __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE(); __HAL_RCC_GPIOH_CLK_ENABLE();
+  /* PA1 belongs exclusively to UART4 RX. No LED output on this pin. */
+  HAL_GPIO_WritePin(GPIOC,CAM_RST_Pin,GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC,CAM_PWDN_Pin,GPIO_PIN_RESET);
+  gpio.Pin=CAM_RST_Pin|CAM_PWDN_Pin; gpio.Mode=GPIO_MODE_OUTPUT_PP;
+  gpio.Pull=GPIO_NOPULL; gpio.Speed=GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC,&gpio);
 }
 
 

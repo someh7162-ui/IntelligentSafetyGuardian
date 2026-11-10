@@ -1,9 +1,11 @@
-# Windows USB 网关
+# 正式设备 USB 网关
 
-`riderguard_usb_gateway.ps1` 从 STM32 USB CDC 串口解析 `JPEG_TX_BEGIN LEN=...` 帧和 `GPS_NMEA` 行，分别上传图像和定位到 RiderGuard 后台。`riderguard_nmea.ps1` 校验 RMC 校验和，室内无定位时上报 `gpsValid=false` 且不伪造经纬度。
+本机网页入口及步骤见 [本机硬件联调](../../docs/RiderGuard_本机硬件联调.md)。
 
-先建立到后台的 SSH 本地端口转发，并在本目录创建 `riderguard-device-token.txt`（纯文本一行；已被仓库忽略）。默认串口为 COM3，后台地址为 `http://127.0.0.1:18766`。运行 `pwsh -File riderguard_usb_gateway.ps1 -Port COM3`。如本地端口或设备 ID 不同，使用脚本参数覆盖。
+- `local_gateway.py` 是唯一的 USB 拆包与正式 HTTP 上传实现；由后台受控启动，凭证通过子进程环境传递。
+- `requirements.txt` 锁定串口依赖；项目启动器会准备隔离环境。
+- `riderguard_usb_gateway.ps1` 保留为手动命令行兼容入口，默认定位 3 秒、图片 30 秒，直接连接正式后端接口。
+- `riderguard_nmea.ps1` 保留供既有脚本兼容，网页受控链路使用 Python 解析器。
+- `test_local_gateway.py` 验证 NMEA、二进制 JPEG 拆包、正式上传和凭证重定向保护。
 
-令牌文件不能放入版本控制。生产环境应使用 TLS，4G 接入时由设备端实现相同协议。
-
-图像上传失败时会重试，但拍摄超过 15 秒的待传图片会被丢弃（`-MaxImageAgeMs` 可调整），防止过期图片影响后台当前的人群风险判断。后台仍会独立检查帧时间与顺序。
+USB 接入不会向 4G 模块发送指令。自动传图在每次网页启动连接时默认关闭。退出后台或点击停止会释放串口；离线重试当前使用有界内存队列。

@@ -1,10 +1,12 @@
 #include "gnss.h"
+#include "bringup_v12.h"
 
 #include <string.h>
 
 #define GNSS_RX_RING_SIZE 4096U
 
 static UART_HandleTypeDef *s_gnss_uart = NULL;
+volatile uint32_t gnss_rx_bytes, gnss_rx_errors, gnss_rx_overruns;
 static char s_line_buffer[GNSS_LINE_BUFFER_SIZE];
 static uint16_t s_line_index = 0U;
 static uint8_t s_rx_byte;
@@ -19,8 +21,8 @@ void GNSS_Init(UART_HandleTypeDef *huart)
     s_rx_head = 0U;
     s_rx_tail = 0U;
     memset(s_line_buffer, 0, sizeof(s_line_buffer));
-    HAL_NVIC_SetPriority(USART2_IRQn, 2U, 0U);
-    HAL_NVIC_EnableIRQ(USART2_IRQn);
+    HAL_NVIC_SetPriority(UART4_IRQn, 2U, 0U);
+    HAL_NVIC_EnableIRQ(UART4_IRQn);
     (void)HAL_UART_Receive_IT(s_gnss_uart, &s_rx_byte, 1U);
 }
 
@@ -77,18 +79,20 @@ uint8_t GNSS_Task(char *line_out, uint16_t line_out_size)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     uint16_t next;
-    if (huart != s_gnss_uart) return;
+    if (huart != s_gnss_uart) { Bringup_RxComplete(huart); return; }
+    gnss_rx_bytes++;
     next = (uint16_t)((s_rx_head + 1U) % GNSS_RX_RING_SIZE);
     if (next != s_rx_tail)
     {
         s_rx_ring[s_rx_head] = s_rx_byte;
         s_rx_head = next;
     }
+    else gnss_rx_overruns++;
     (void)HAL_UART_Receive_IT(s_gnss_uart, &s_rx_byte, 1U);
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart == s_gnss_uart)
-        (void)HAL_UART_Receive_IT(s_gnss_uart, &s_rx_byte, 1U);
+    if (huart == s_gnss_uart) { gnss_rx_errors++; (void)HAL_UART_Receive_IT(s_gnss_uart, &s_rx_byte, 1U); }
+    else Bringup_RxError(huart);
 }

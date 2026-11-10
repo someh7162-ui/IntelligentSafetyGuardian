@@ -1,4 +1,7 @@
 <template>
+  <el-tabs v-model="workspaceTab">
+    <el-tab-pane label="企业监管" name="enterprise"><SupervisionPanel /></el-tab-pane>
+    <el-tab-pane label="历史风险记录" name="legacy">
   <section class="event-center">
     <div class="workspace-head">
       <div><h2>风险事件</h2><p>核对速度、位置和现场照片，记录每一步处理结论。</p></div>
@@ -53,9 +56,13 @@
       </div>
     </el-drawer>
   </section>
+    </el-tab-pane>
+  </el-tabs>
 </template>
 
 <script setup lang="ts">
+import SupervisionPanel from './SupervisionPanel.vue';
+const workspaceTab = ref('enterprise');
 import { ElMessage } from 'element-plus';
 import { getEventDetail, getEvents, getEvidenceImage, processEvent } from '@/api/riderguard';
 import type { EventDetail, RiskEvent } from '@/api/riderguard';

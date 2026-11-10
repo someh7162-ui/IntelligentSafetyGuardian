@@ -29,9 +29,9 @@
         <div v-show="!mobileMap || mobileSheetOpen" id="rider-sheet-content" ref="sheetContent" class="sheet-content">
         <div v-if="selectedDevice && (!mobileMap || sheetView === 'detail')" class="track-inspector">
           <div class="track-heading"><div><span class="eyebrow">骑手详情</span><h3>{{ selectedDeviceInfo?.rider_name || selectedDevice }}</h3><span class="track-id">{{ selectedDevice }}</span></div><button class="track-close" type="button" aria-label="关闭轨迹" @click="clearSelectedDevice">×</button></div>
-          <div class="rider-status-line"><span :class="selectedDeviceInfo && online(selectedDeviceInfo) ? 'status-online' : 'status-offline'">{{ selectedDeviceInfo && online(selectedDeviceInfo) ? '设备在线' : '设备离线' }}</span><button class="map-expand" type="button" :disabled="!selectedDeviceInfo?.gps_valid || !!eventAt" :aria-pressed="followRider" @click="toggleFollow">{{ followRider ? '停止跟随' : '跟随骑手' }}</button></div>
+          <div class="rider-status-line"><span :class="selectedDeviceInfo && online(selectedDeviceInfo) ? 'status-online' : 'status-offline'">{{ selectedDeviceInfo && online(selectedDeviceInfo) ? '设备在线' : '设备离线' }}</span><button class="map-expand" type="button" :disabled="!selectedDeviceInfo || !hasLocation(selectedDeviceInfo) || !!eventAt" :aria-pressed="followRider" @click="toggleFollow">{{ followRider ? '停止跟随' : '跟随骑手' }}</button></div>
           <div class="rider-limit">规则限速 <b>{{ selectedDeviceInfo?.crowd_mode ? policy.crowd_limit_kph : policy.normal_limit_kph }} km/h</b><span>{{ selectedDeviceInfo?.crowd_mode ? '人群密集' : '普通路段' }}</span></div>
-          <div class="track-stats"><div><small>当前车速</small><strong>{{ !selectedDeviceInfo || !telemetryFresh(selectedDeviceInfo) || selectedDeviceInfo.last_speed == null ? '—' : Number(selectedDeviceInfo.last_speed).toFixed(1) }} <em>km/h</em></strong></div><div><small>最新上报</small><strong>{{ selectedDeviceInfo?.last_sample_ms ? time(selectedDeviceInfo.last_sample_ms) : '—' }}</strong></div><div><small>有效轨迹点</small><strong>{{ validTracks.length }} <em>个</em></strong></div></div>
+          <p v-if="selectedDeviceInfo?.location_source === 'LBS'" class="location-source-hint">基站粗略估算，非 GPS 定位，不用于测速。位置获取时间：{{ selectedDeviceInfo.location_observed_ms ? time(selectedDeviceInfo.location_observed_ms) : '未知' }}</p><div class="track-stats"><div><small>当前车速</small><strong>{{ !selectedDeviceInfo || !telemetryFresh(selectedDeviceInfo) || selectedDeviceInfo.last_speed == null ? '—' : Number(selectedDeviceInfo.last_speed).toFixed(1) }} <em>km/h</em></strong></div><div><small>最新上报</small><strong>{{ selectedDeviceInfo?.last_sample_ms ? time(selectedDeviceInfo.last_sample_ms) : '—' }}</strong></div><div><small>有效轨迹点</small><strong>{{ validTracks.length }} <em>个</em></strong></div></div>
           <div class="rider-photo"><button v-if="riderPhotoUrl" type="button" @click="viewImage(selectedDeviceInfo!.latest_image_id!)"><img :src="riderPhotoUrl" alt="骑手最近一次前方现场照片" /></button><span v-else>{{ riderPhotoLoading ? '正在加载现场照片…' : '暂无可用现场照片' }}</span><small>{{ selectedDeviceInfo?.latest_image_captured_ms ? `最新照片 · ${date(selectedDeviceInfo.latest_image_captured_ms)}` : '等待设备上传照片' }}</small></div>
           <router-link class="camera-entry" :to="{ path: '/riderguard/camera', query: { device: selectedDevice } }">查看实时画面 ↗</router-link>
           <div v-if="eventAt" class="event-context"><b>事件轨迹 · {{ date(eventAt) }}</b><span>事发前后各 5 分钟</span><button v-if="eventId" type="button" @click="openEventCenter(eventId)">查看事件证据 ↗</button></div>
@@ -49,8 +49,8 @@
           <button v-for="device in filteredDevices" :key="device.device_id" class="device-row" :class="{ selected: selectedDevice === device.device_id }" @click="selectDevice(device.device_id)">
             <span class="dot" :class="online(device) && telemetryFresh(device) ? device.crowd_mode ? 'crowd' : 'online' : 'offline'"></span>
             <span class="device-name"><b>{{ device.rider_name || device.device_id }}</b><small>{{ device.device_id }}</small></span>
-            <span class="device-data">{{ !telemetryFresh(device) || device.last_speed == null ? '—' : `${Number(device.last_speed).toFixed(1)} km/h` }}<small>{{ device.gps_valid && device.last_lat != null ? `${Number(device.last_lat).toFixed(5)}, ${Number(device.last_lng).toFixed(5)}` : '定位未就绪' }}</small></span>
-            <span class="device-state">{{ !online(device) ? '离线' : !device.last_sample_ms || Date.now() - device.last_sample_ms > 15000 ? '数据过期' : !device.gps_valid ? '定位无效' : device.inference_status === 'ERROR' ? '识别失败' : device.crowd_mode ? '人群密集' : '正常' }}</span>
+            <span class="device-data">{{ !telemetryFresh(device) || device.last_speed == null ? '—' : `${Number(device.last_speed).toFixed(1)} km/h` }}<small>{{ hasLocation(device) ? `${Number(device.last_lat).toFixed(5)}, ${Number(device.last_lng).toFixed(5)}` : '定位未就绪' }}</small></span>
+            <span class="device-state">{{ !online(device) ? '离线' : !device.last_sample_ms || Date.now() - device.last_sample_ms > 15000 ? '数据过期' : !device.gps_valid ? device.location_source === 'LBS' && hasLocation(device) ? '基站粗略估算' : '定位无效' : device.inference_status === 'ERROR' ? '识别失败' : device.crowd_mode ? '人群密集' : '正常' }}</span>
           </button>
           <p v-if="devices.length && !filteredDevices.length" class="empty">未找到匹配的骑手或设备</p>
           <p v-if="!devices.length" class="empty">暂无设备。前往“骑手与设备”页面创建设备后即可查看位置。</p>
@@ -75,9 +75,10 @@
         <div class="panel-head"><div><span class="eyebrow">SPEED POLICY</span><h2>分场景限速</h2></div><span class="tag">演示配置</span></div>
         <div class="policy-grid"><label>普通限速 <el-input-number v-model="policy.normal_limit_kph" :disabled="!canManage" :min="2" :max="80" /> km/h</label><label>人群密集限速 <el-input-number v-model="policy.crowd_limit_kph" :disabled="!canManage" :min="1" :max="79" /> km/h</label><label>密集人数阈值 <el-input-number v-model="policy.crowd_person_count" :disabled="!canManage" :min="1" :max="50" /> 人</label></div>
         <p class="help">单张图片达到人数阈值后立即切换；连续三张低于阈值后恢复。数值仅供联调。</p>
+        <p class="help">设备定位目标 {{ (policy.telemetry_interval_ms || 3000) / 1000 }} 秒，自动传图 {{ (policy.image_interval_ms || 30000) / 1000 }} 秒；视觉状态有效期 {{ (policy.vision_stale_after_ms || 90000) / 1000 }} 秒。</p>
         <el-button v-if="canManage" type="primary" @click="updatePolicy">保存限速规则</el-button>
       </section>
-      <OperationsPanel :devices="devices" />
+      <OperationsPanel :devices="devices" :can-manage="canManage" :image-stale-after-ms="policy.vision_stale_after_ms || 90000" />
     </div>
     <el-dialog v-model="imageDialog" title="风险现场照片" width="min(720px, 92vw)" @closed="clearImage"><img v-if="evidenceUrl" :src="evidenceUrl" class="evidence" alt="风险事件现场照片" /></el-dialog>
   </main>
@@ -143,7 +144,12 @@ const playbackTime = ref(0);
 const trackSegments = computed(() => splitTracks(tracks.value));
 const playing = ref(false), playbackIndex = ref(0), playbackTotal = ref(0);
 const mapKey = import.meta.env.VITE_AMAP_KEY || '';
-const locatedCount = computed(() => devices.value.filter(d => online(d) && telemetryFresh(d) && d.gps_valid && d.last_lat != null && d.last_lng != null).length);
+function hasLocation(device: Device): boolean {
+  if (device.last_lat == null || device.last_lng == null) return false;
+  if (device.gps_valid) return true;
+  return device.location_source === 'LBS' && Boolean(device.location_observed_ms && Date.now() - device.location_observed_ms <= 600000);
+}
+const locatedCount = computed(() => devices.value.filter(d => online(d) && telemetryFresh(d) && hasLocation(d)).length);
 
 const filteredDevices = computed(() => devices.value.filter(device => `${device.rider_name || ''} ${device.device_id}`.toLowerCase().includes(deviceSearch.value.trim().toLowerCase())));
 const selectedDeviceInfo = computed(() => devices.value.find(device => device.device_id === selectedDevice.value));
@@ -473,16 +479,16 @@ async function drawMap() {
       map.add(signalMarker);
     }
   } else if (signalMarker) { map.remove(signalMarker); signalMarker = undefined; }
-  const located = devices.value.filter(d => online(d) && telemetryFresh(d) && d.gps_valid && d.last_lat != null && d.last_lng != null);
+  const located = devices.value.filter(d => online(d) && telemetryFresh(d) && hasLocation(d));
   const positions = await convert(located.map(d => [Number(d.last_lng), Number(d.last_lat)]));
   if (version !== mapDrawVersion || !map) return;
   const visibleIds = new Set(located.map(d => d.device_id));
   for (const [id, marker] of markers) if (!visibleIds.has(id)) { map.remove(marker); markers.delete(id); markerStates.delete(id); markerTargets.delete(id); const frame = markerAnimations.get(id); if (frame) cancelAnimationFrame(frame); markerAnimations.delete(id); }
   located.forEach((device, index) => {
     const id = device.device_id;
-    const state = online(device) && telemetryFresh(device) ? device.crowd_mode ? 'crowd' : 'online' : 'offline';
+    const state = device.location_source === 'LBS' ? 'lbs' : online(device) && telemetryFresh(device) ? device.crowd_mode ? 'crowd' : 'online' : 'offline';
     const visualState = `${state}${selectedDevice.value === id ? ' selected' : ''}`;
-    const title = `${device.rider_name || id} · ${device.last_speed || 0} km/h`;
+    const title = `${device.rider_name || id} · ${device.location_source === 'LBS' ? '基站粗略估算 · 不用于测速' : `${device.last_speed || 0} km/h`}`;
     const marker = markers.get(id);
     if (marker) {
       animateMarker(id, marker, positions[index], online(device) && telemetryFresh(device)); marker.setTitle(title);
@@ -522,6 +528,7 @@ async function drawMap() {
   }
   if (fitRequested) {
     if (selectedDevice.value && route) map.setFitView([route]);
+    else if (located.length === 1) map.setZoomAndCenter(located[0].location_source === 'LBS' ? 14 : 17, positions[0]);
     else if (markers.size) map.setFitView([...markers.values()]);
     if (route || markers.size) fitRequested = false;
   }
@@ -546,7 +553,7 @@ onMounted(async () => {
       lastSecondaryPollAt = Date.now();
       void refresh();
     }
-  }, 2000);
+  }, 3000);
 });
 watch(page, async () => {
   routeSelectionVersion++;
@@ -775,6 +782,8 @@ footer { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-
 .policy-grid label { display: grid; gap: 9px; color: #68767d; font-size: 11px; font-weight: 650; }
 .evidence { display: block; max-width: 100%; max-height: 70vh; margin: auto; border-radius: 8px; }
 :deep(.rg-map-pin) { display: block; width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 2px 9px #1118, 0 0 0 2px #27a46b42; background: #29a46b; }
+.location-source-hint { color: #996723; font-size: 12px; line-height: 1.6; }
+:deep(.rg-map-pin.lbs) { background: #bd8a2d; border-style: dashed; box-shadow: 0 0 0 5px #bd8a2d22; }
 :deep(.rg-map-pin.crowd) { background: #f17736; box-shadow: 0 2px 9px #1118, 0 0 0 2px #f1773645; }
 :deep(.rg-map-pin.offline) { background: #9daab0; box-shadow: 0 2px 9px #1118; }
 :deep(.rg-map-pin.selected) { width: 22px; height: 22px; border-width: 4px; box-shadow: 0 2px 10px #1118, 0 0 0 5px #e9653259; }

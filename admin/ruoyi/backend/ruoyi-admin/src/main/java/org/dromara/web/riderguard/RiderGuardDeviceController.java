@@ -19,13 +19,13 @@ public class RiderGuardDeviceController {
     private final RiderGuardService service;
 
     @PostMapping("/telemetry")
-    public Map<String, Object> telemetry(@RequestHeader("X-Device-Token") String token,
+    public Map<String, Object> telemetry(@RequestHeader(value = "X-Device-Token", required = false) String token,
                                           @RequestBody RiderGuardService.Telemetry telemetry) {
         return service.telemetry(telemetry, token);
     }
 
     @PostMapping("/image")
-    public Map<String, Object> image(@RequestHeader("X-Device-Token") String token,
+    public Map<String, Object> image(@RequestHeader(value = "X-Device-Token", required = false) String token,
                                      @RequestParam String deviceId, @RequestParam String sampleId,
                                      @RequestParam long capturedAtMs, @RequestParam MultipartFile image,
                                      @RequestHeader(value = "X-Demo-People", required = false) Integer demoPeople) throws IOException {

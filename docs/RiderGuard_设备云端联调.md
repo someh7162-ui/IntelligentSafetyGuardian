@@ -1,6 +1,8 @@
 # RiderGuard 设备—云端联调
 
-本文件描述 [当前实施方案](RiderGuard_当前实施方案.md) 的现有接口与模拟联调。骑行中约 3～5 秒一张 JPEG 是首版实机联调目标；下述模拟器固定约 4 秒一张，仅用于演示，不代表真实硬件已经接入。
+> 2026-11-03 本机基线：以 [本机硬件联调](RiderGuard_本机硬件联调.md) 为准。真实设备通过正式后台网页控制 USB 网关；定位约 3 秒、自动图片约 30 秒；当前采用 GNSS 测速。本阶段不部署、不启动 4G 联调上传。旧模拟器的 1 秒/4 秒节奏不作为真实设备默认设置。
+
+本文件描述 [当前实施方案](RiderGuard_当前实施方案.md) 的现有接口与模拟联调。当前真实设备默认约 30 秒一张 JPEG；下述模拟器固定约 4 秒一张，仅用于演示，不代表真实硬件已经接入。
 
 ## 本地启动
 
@@ -33,11 +35,11 @@ python device/simulator.py --device-id SG-001 --token <新建时显示的凭证>
 
 ## 识别与地图
 
-云端 Python 服务的 `POST /infer/crowd` 接收 JPEG；本地默认为 `mock`。真实部署设置 `RIDERGUARD_INFERENCE_MODE=yolo`、`RIDERGUARD_MODEL_PATH=<已验证的模型权重>`、`RIDERGUARD_AI_KEY=<内部密钥>`，并在若依进程设置同一 `RIDERGUARD_AI_KEY` 与内部服务地址 `RIDERGUARD_AI_URL`。真实 YOLO 仅计算前方道路区域内的 person 检测框中心；区域多边形需按实车机位校准。连续两张达到人数阈值进入密集模式，连续三张低于阈值退出。推理失败的图片标记 `ERROR`，同一采样编号可重试，不会把失败当作“无人群”。
+云端 Python 服务的 `POST /infer/crowd` 接收 JPEG；本地默认为 `mock`。真实部署设置 `RIDERGUARD_INFERENCE_MODE=yolo`、`RIDERGUARD_MODEL_PATH=<已验证的模型权重>`、`RIDERGUARD_AI_KEY=<内部密钥>`，并在若依进程设置同一 `RIDERGUARD_AI_KEY` 与内部服务地址 `RIDERGUARD_AI_URL`。真实 YOLO 仅计算前方道路区域内的 person 检测框中心；区域多边形需按实车机位校准。单张达到人数阈值进入密集模式，连续三张低于阈值退出。推理失败的图片标记 `ERROR`，同一采样编号可重试，不会把失败当作“无人群”。
 
 前端在 `admin/ruoyi/frontend/.env.local` 设置 `VITE_AMAP_KEY=<Web端 JS API Key>` 后展示高德地图。高德安全代理必须位于站点根路径 `/_AMapService`，不能放到 `/dev-api` 或 `/prod-api` 下面；本地 Vite 和生产 Nginx 都把该路径转发给若依后端。如需单独部署代理，可覆盖 `VITE_AMAP_SERVICE_HOST`，但其路径仍须是根路径 `/_AMapService`。若依后端从 `RIDERGUARD_AMAP_SECURITY_FILE` 指定的文件读取安全密钥，并转发到高德固定域名；本地启动脚本默认读取 `deploy/local-runtime/amap-security-code.txt`。部署时应配置同名环境变量，安全密钥不要放进前端环境变量。服务端保存 GNSS 原始经纬度，前端显示时转换为高德坐标。没有 Key 时，定位列表、事件和轨迹点数仍可用。接入依据：[高德 JS API 安全密钥使用说明](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)。
 
-运营首页约每 2 秒读取一次设备最新位置；点击地图标记或设备列表可查看该骑手近 15 分钟或近 1 小时的轨迹、起终点、最新上报时间和车速。轨迹首次加载后增量拉取新点，每 30 秒重新同步一次完整时间窗，以覆盖设备断线后补传的历史点。当前为近实时轮询，页面关闭不影响后端继续记录；GNSS 无效的点保存在轨迹表中，但不会绘制到地图。地图用高德 `AMap.convertFrom(..., 'gps')` 转换原始 GPS 坐标，单次至多 40 对坐标；路线为保持响应速度最多抽样绘制约 500 点，面板中的有效轨迹点数仍统计所选时段的全部有效上报点。
+运营首页约每 3 秒读取一次设备最新位置；点击地图标记或设备列表可查看该骑手近 15 分钟或近 1 小时的轨迹、起终点、最新上报时间和车速。轨迹首次加载后增量拉取新点，每 30 秒重新同步一次完整时间窗，以覆盖设备断线后补传的历史点。当前为近实时轮询，页面关闭不影响后端继续记录；GNSS 无效的点保存在轨迹表中，但不会绘制到地图。地图用高德 `AMap.convertFrom(..., 'gps')` 转换原始 GPS 坐标，单次至多 40 对坐标；路线为保持响应速度最多抽样绘制约 500 点，面板中的有效轨迹点数仍统计所选时段的全部有效上报点。
 
 ## 管理工作区
 

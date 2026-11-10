@@ -9,6 +9,7 @@ extern "C" {
 #include <stdint.h>
 
 void USB_Stream_Print(const char *str);
+uint8_t USB_Stream_Connected(void);
 HAL_StatusTypeDef USB_Stream_SendBytes(const uint8_t *data, uint32_t length);
 
 #ifdef __cplusplus

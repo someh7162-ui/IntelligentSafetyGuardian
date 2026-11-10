@@ -5,6 +5,7 @@ export interface Rider { id: number; name: string; phone?: string }
 export interface Device {
   device_id: string; rider_id?: number; rider_name?: string; last_seen_ms?: number; last_sample_ms?: number;
   last_lat?: number; last_lng?: number; last_speed?: number; gps_valid: boolean;
+  location_source?: 'GPS' | 'LBS' | 'NONE'; location_observed_ms?: number;
   crowd_mode: boolean; last_image_ms?: number; inference_status?: string; inference_mode?: string;
   person_count?: number; latest_image_captured_ms?: number; latest_image_id?: number;
 }
@@ -20,11 +21,11 @@ export interface RiskEvent {
   captured_ms: number; status: string; intersection_id?: string; signal_state?: string; distance_m?: number;
   signal_source?: string; is_mock?: boolean;
 }
-export interface Policy { normal_limit_kph: number; crowd_limit_kph: number; crowd_person_count: number }
+export interface Policy { normal_limit_kph: number; crowd_limit_kph: number; crowd_person_count: number; telemetry_interval_ms?: number; image_interval_ms?: number; vision_stale_after_ms?: number }
 export interface Overview { onlineDevices: number; riders: number; todayEvents: number; openEvents: number }
 export interface EventAction { actor_user_id: number; actor_name: string; old_status: string; new_status: string; note: string; created_at: string }
 export interface EventDetail extends RiskEvent { person_count?: number; signal_group?: string; movement?: string; remaining_seconds?: number; observed_ms?: number; expires_ms?: number; actions: EventAction[] }
-export interface AiHealth { status: 'UP' | 'DOWN'; mode: string; readyLastHour: number; failedLastHour: number; averageInferenceMs: number; checkedAtMs: number }
+export interface AiHealth { status: 'UP' | 'DOWN' | 'DISABLED'; mode: string; readyLastHour: number; failedLastHour: number; averageInferenceMs: number; checkedAtMs: number }
 export interface DailyEvents { day: string; events: number; pending: number }
 export interface Analytics { dailyEvents: DailyEvents[] }
 
@@ -46,3 +47,18 @@ export const savePolicy = (normalLimitKph: number, crowdLimitKph: number, crowdP
 export const getEvidenceImage = (id: number): Promise<Blob> => request({ url: `/riderguard/images/${id}`, method: 'get', responseType: 'blob' }) as Promise<Blob>;
 export const getAiHealth = (): AxiosPromise<AiHealth> => request({ url: '/riderguard/ai/health', method: 'get' });
 export const getAnalytics = (): AxiosPromise<Analytics> => request({ url: '/riderguard/analytics', method: 'get' });
+
+export interface LocalDevicePort { port: string; description: string }
+export interface LocalDeviceState {
+  available: boolean; running: boolean; connected: boolean; deviceId: string; port: string; autoImages: boolean;
+  startedAtMs: number; telemetryIntervalMs: number; imageIntervalMs: number; visionStaleAfterMs: number;
+  telemetry?: { sampleId?: string; capturedAtMs?: number; gpsValid?: boolean; speedKph?: number };
+  policy?: { limitKph?: number; visionStatus?: string; mode?: string };
+  image?: { status?: string; personCount?: number };
+  events: { id: number; kind: string; timeMs: number; message: string }[];
+}
+export const getLocalDeviceStatus = (): AxiosPromise<LocalDeviceState> => request({ url: '/riderguard/local-device/status', method: 'get' });
+export const getLocalDevicePorts = (): AxiosPromise<LocalDevicePort[]> => request({ url: '/riderguard/local-device/ports', method: 'get' });
+export const startLocalDevice = (deviceId: string, port: string, token: string): AxiosPromise<LocalDeviceState> => request({ url: '/riderguard/local-device/start', method: 'post', headers: { 'X-Device-Token': token }, data: { deviceId, port } });
+export const stopLocalDevice = (): AxiosPromise<LocalDeviceState> => request({ url: '/riderguard/local-device/stop', method: 'post' });
+export const commandLocalDevice = (action: 'capture' | 'images', enabled?: boolean): AxiosPromise<LocalDeviceState> => request({ url: '/riderguard/local-device/command', method: 'post', data: { action, enabled } });

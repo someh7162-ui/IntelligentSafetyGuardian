@@ -59,7 +59,7 @@ extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 extern DMA_HandleTypeDef hdma_dcmi;
 extern DCMI_HandleTypeDef hdcmi;
 /* USER CODE BEGIN EV */
-extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart4;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -243,8 +243,8 @@ void DCMI_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-void USART2_IRQHandler(void)
+void UART4_IRQHandler(void)
 {
-  HAL_UART_IRQHandler(&huart2);
+  HAL_UART_IRQHandler(&huart4);
 }
 /* USER CODE END 1 */

@@ -2,26 +2,28 @@
   <section class="ops-panel">
     <div class="panel-heading"><div><span class="eyebrow">SYSTEM / OPERATIONS</span><h2>设备与 AI 状态</h2></div><el-button :loading="loading" @click="refresh">检查服务</el-button></div>
     <div class="health-grid">
-      <div class="health-card"><small>云端识别接口</small><strong :class="health?.status === 'UP' ? 'good' : 'warn'">{{ !health ? '检查中' : health.status === 'UP' ? '可连接' : '不可连接' }}</strong><span>{{ health?.status === 'UP' ? `服务模式 ${health.mode}` : '检查若依到 AI 服务的连接' }}</span></div>
+      <div class="health-card"><small>云端识别接口</small><strong :class="health?.status === 'UP' ? 'good' : 'warn'">{{ !health ? '检查中' : health.status === 'DISABLED' ? '识别未启用' : health.status === 'UP' ? '可连接' : '不可连接' }}</strong><span>{{ health?.status === 'DISABLED' ? '图片正常保存，本轮不运行模型' : health?.status === 'UP' ? `服务模式 ${health.mode}` : '检查若依到 AI 服务的连接' }}</span></div>
       <div class="health-card"><small>近 1 小时识别成功</small><strong>{{ health?.readyLastHour ?? '—' }}</strong><span>按推理请求统计</span></div>
       <div class="health-card"><small>近 1 小时识别失败</small><strong :class="(health?.failedLastHour || 0) > 0 ? 'warn' : ''">{{ health?.failedLastHour ?? '—' }}</strong><span>失败照片可用相同编号重传</span></div>
       <div class="health-card"><small>平均识别耗时</small><strong>{{ health?.readyLastHour ? health.averageInferenceMs : '—' }} <em v-if="health?.readyLastHour">ms</em></strong><span>近 1 小时成功请求</span></div>
     </div>
-    <p class="health-hint">接口可连接仅代表健康接口响应；实际模型效果以实拍照片的识别结果为准。检查时间：{{ health?.checkedAtMs ? formatTime(health.checkedAtMs) : '—' }}</p>
+    <p class="health-hint">{{ health?.status === 'DISABLED' ? '当前只验证定位与图片链路，不产生视觉识别结果或人群识别告警。' : '接口可连接仅代表健康接口响应；实际模型效果以实拍照片的识别结果为准。' }} 检查时间：{{ health?.checkedAtMs ? formatTime(health.checkedAtMs) : '—' }}</p>
     <div class="sub-heading"><h3>设备链路</h3><span>{{ devices.length }} 台登记设备</span></div>
     <div v-if="!devices.length" class="empty">暂无登记设备</div>
-    <div v-else class="device-health-list"><div v-for="device in devices" :key="device.device_id" class="device-health"><div><b>{{ device.rider_name || device.device_id }}</b><small>{{ device.device_id }}</small></div><span :class="deviceState(device).tone">{{ deviceState(device).label }}</span><span :class="device.gps_valid ? 'good' : 'warn'">{{ device.gps_valid ? 'GPS 正常' : 'GPS 无效' }}</span><span :class="device.inference_status === 'ERROR' ? 'warn' : ''">{{ imageState(device) }}</span><small>{{ device.last_seen_ms ? formatTime(device.last_seen_ms) : '从未上报' }}</small></div></div>
+    <div v-else class="device-health-list"><div v-for="device in devices" :key="device.device_id" class="device-health"><div><b>{{ device.rider_name || device.device_id }}</b><small>{{ device.device_id }}</small></div><span :class="deviceState(device).tone">{{ deviceState(device).label }}</span><span :class="device.gps_valid ? 'good' : 'warn'">{{ device.gps_valid ? 'GPS 正常' : device.location_source === 'LBS' ? '基站粗定位' : 'GPS 无效' }}</span><span :class="device.inference_status === 'ERROR' ? 'warn' : ''">{{ imageState(device) }}</span><small>{{ device.last_seen_ms ? formatTime(device.last_seen_ms) : '从未上报' }}</small></div></div>
     <div class="sub-heading"><h3>近 7 天风险趋势</h3><span>按事件采集日期统计</span></div>
     <div v-if="!analytics?.dailyEvents.length" class="empty">近 7 天暂无风险事件</div>
     <div v-else class="trend"><div v-for="day in analytics.dailyEvents" :key="day.day" class="trend-day"><span>{{ day.events }} 起</span><div class="trend-track"><i :style="{ height: `${Math.max(7, day.events / maxEvents * 100)}%` }"></i></div><small>{{ day.day.slice(5) }}</small></div></div>
+    <LocalDeviceTest v-if="canManage" :devices="devices" />
   </section>
 </template>
 
 <script setup lang="ts">
 import { getAiHealth, getAnalytics } from '@/api/riderguard';
 import type { AiHealth, Analytics, Device } from '@/api/riderguard';
+import LocalDeviceTest from './LocalDeviceTest.vue';
 
-defineProps<{ devices: Device[] }>();
+const props = withDefaults(defineProps<{ devices: Device[]; canManage?: boolean; imageStaleAfterMs?: number }>(), { canManage: false, imageStaleAfterMs: 90000 });
 const health = ref<AiHealth>();
 const analytics = ref<Analytics>();
 const loading = ref(false);
@@ -34,8 +36,9 @@ const deviceState = (device: Device) => {
 };
 const imageState = (device: Device) => {
   if (!device.latest_image_captured_ms) return '尚未传图';
+  if (device.inference_status === 'SKIPPED') return '图片已保存 · 识别未启用';
   if (device.inference_status === 'ERROR') return '识别失败';
-  if (Date.now() - device.latest_image_captured_ms > 15000) return '图片过期';
+  if (Date.now() - device.latest_image_captured_ms > props.imageStaleAfterMs) return '图片过期';
   return device.inference_status === 'READY' ? `识别成功 · ${device.person_count ?? '—'} 人` : '识别中';
 };
 async function refresh() {
