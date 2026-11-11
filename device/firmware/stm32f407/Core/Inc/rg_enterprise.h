@@ -9,6 +9,7 @@ typedef struct {
     uint32_t voice_sent,voice_errors,identity_fault,gps_valid,restore_done;
     uint32_t volatile_photos,camera_ready,camera_pid,gps_bytes,gps_errors;
     uint32_t read_address,read_length,read_command,read_result;
+    uint32_t camera_command,camera_result,camera_width,camera_height,camera_frame_bytes,camera_capture_ms;
     uint8_t read_buffer[256]; /* SWD read-only backup mailbox, never accepts write commands. */
 } RgEnterpriseDiagnostics;
 extern volatile RgEnterpriseDiagnostics enterprise_diag;

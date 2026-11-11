@@ -9,6 +9,8 @@ extern "C" {
 #include <stdint.h>
 
 #define OV2640_JPEG_BUFFER_SIZE_BYTES  (64U * 1024U)
+#define OV2640_JPEG_WIDTH              640U
+#define OV2640_JPEG_HEIGHT             480U
 #define OV2640_WARMUP_FRAMES           10U
 
 typedef struct
@@ -48,7 +50,7 @@ typedef struct
 
 /*
  * Attach the CubeMX-generated I2C2/DCMI/DMA handles, reset the sensor,
- * verify PID=0x2642, configure JPEG QVGA, enable AEC/AGC, and warm up.
+ * verify PID=0x2642, configure JPEG VGA (640x480), enable AEC/AGC, and warm up.
  */
 HAL_StatusTypeDef OV2640_Begin(OV2640_Handle_t *camera,
                                I2C_HandleTypeDef *hi2c,

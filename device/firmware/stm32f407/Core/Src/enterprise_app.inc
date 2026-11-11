@@ -10,8 +10,8 @@
 #include "usbd_cdc_if.h"
 #include <math.h>
 #include <stdarg.h>
-volatile BringupDiagnostics bringup_diag={.magic=0x52475612,.version=0x00020001};
-volatile RgEnterpriseDiagnostics enterprise_diag={.magic=0x52474532,.version=0x00020001};
+volatile BringupDiagnostics bringup_diag={.magic=0x52475612,.version=0x00020002};
+volatile RgEnterpriseDiagnostics enterprise_diag={.magic=0x52474532,.version=0x00020002};
 UART_HandleTypeDef huart3,huart5;
 static rg_supervision_t supervision __attribute__((section(".ccmram")));
 static rg_journal_t journal __attribute__((section(".ccmram")));
@@ -30,6 +30,7 @@ static int upload_kind,upload_slot=-1;static bool request_busy;static uint32_t u
 static uint8_t voice_pending,voice_frame[10],voice_rx;static uint32_t voice_at;
 static rg_gps_fix_t last_gps;static int64_t network_utc;static uint32_t network_at;
 static uint64_t boot_id;
+static bool local_capture_active;static uint32_t local_capture_at;
 static int64_t utc_at(uint32_t now){
     if(last_gps.utc_valid&&(uint32_t)(now-last_gps.receipt_tick_ms)<3000)return last_gps.unix_ms+(uint32_t)(now-last_gps.receipt_tick_ms);
     if(network_utc&&(uint32_t)(now-network_at)<3600000U)return network_utc+(uint32_t)(now-network_at);
@@ -139,6 +140,23 @@ static void camera_task(uint32_t now){
     }
     photo_offset=0;photo_part=0;photo_parts=(uint16_t)((camera_frame.length+2047)/2048);photo_storing=true;
 }
+static void local_camera_task(uint32_t now){
+    /* Explicit SWD local-photo request: 1=request, 2=busy, 0=idle.
+     * This path neither manufactures safety events nor writes/uploads photos. */
+    if(!local_capture_active){
+        if(enterprise_diag.camera_command!=1||camera_count||capture_active||photo_storing)return;
+        enterprise_diag.camera_result=0;enterprise_diag.camera_frame_bytes=0;
+        HAL_StatusTypeDef status=OV2640_StartJPEG(&camera);
+        if(status!=HAL_OK){enterprise_diag.camera_result=2;enterprise_diag.camera_command=0;return;}
+        local_capture_active=true;local_capture_at=now;enterprise_diag.camera_command=2;return;
+    }
+    HAL_StatusTypeDef status=OV2640_PollJPEG(&camera,&camera_frame);
+    if(status==HAL_BUSY)return;
+    local_capture_active=false;enterprise_diag.camera_capture_ms=HAL_GetTick()-local_capture_at;
+    if(status==HAL_OK){enterprise_diag.camera_ok++;enterprise_diag.volatile_photos++;enterprise_diag.camera_frame_bytes=camera_frame.length;enterprise_diag.camera_result=1;}
+    else{enterprise_diag.camera_errors++;enterprise_diag.camera_result=2;}
+    __DMB();enterprise_diag.camera_command=0;
+}
 static uint16_t body_read(void*ctx,uint32_t offset,uint8_t*out,uint16_t max){
     (void)ctx;
     if(upload_kind!=3){if(offset>=http_length)return 0;uint32_t n=http_length-offset;if(n>max)n=max;memcpy(out,http_body+offset,n);return (uint16_t)n;}
@@ -244,6 +262,7 @@ int main(void){
     if(!mpu_ready)mpu_ready=imu_recover();
     enterprise_diag.camera_ready=OV2640_Begin(&camera,&hi2c2,&hdcmi,&hdma_dcmi)==HAL_OK;
     enterprise_diag.camera_pid=((uint32_t)camera.pidh<<8)|camera.pidl;GNSS_Init(&huart4);
+    enterprise_diag.camera_width=OV2640_JPEG_WIDTH;enterprise_diag.camera_height=OV2640_JPEG_HEIGHT;
     rg_cellular_config_t config={RG_API_BASE,RG_API_HOST,RG_DEVICE_TOKEN,RG_CA_CERT,RG_APN,&huart3,RG_CELLULAR_ENABLED};rg_cellular_init(config);
     while(1){uint32_t now=HAL_GetTick();enterprise_diag.heartbeat=now;
         if((int32_t)(now-next_imu)>=0){if(next_imu&&now-next_imu>10)enterprise_diag.imu_late++;next_imu=now+10;
@@ -252,7 +271,9 @@ int main(void){
         }
         if(!mpu_ready&&(int32_t)(now-imu_retry_at)>=0){mpu_ready=imu_recover();imu_retry_at=HAL_GetTick()+2000;}
         while(GNSS_Task(gnss_line,sizeof gnss_line)){rg_gps_fix_t f;if(rg_gps_parse_rmc(gnss_line,now,&f)){last_gps=f;rg_supervision_gps(&supervision,now,f.gps_valid,f.speed_milli_kph,f.latitude_e7,f.longitude_e7,f.utc_valid,f.unix_ms);}}
-        rg_supervision_tick(&supervision,now);voice_task(now);camera_task(now);storage_task();ack_task();rg_cellular_task(now);restore_events(now);upload_task(now);mailbox_task();
+        rg_supervision_tick(&supervision,now);voice_task(now);
+        if(!local_capture_active)camera_task(now);
+        local_camera_task(now);storage_task();ack_task();rg_cellular_task(now);restore_events(now);upload_task(now);mailbox_task();
         enterprise_diag.calibrated=supervision.calibrated;enterprise_diag.brake_events=supervision.brake_events;enterprise_diag.speed_events=supervision.speed_events;enterprise_diag.road_events=supervision.road_events;
         enterprise_diag.gps_valid=supervision.gps_valid;enterprise_diag.modem_ready=rg_cellular_ready();enterprise_diag.modem_errors=rg_cellular_errors();enterprise_diag.storage_fault=journal.fault;enterprise_diag.storage_full=journal.full_count;enterprise_diag.storage_queued=jobs_count;
         enterprise_diag.gps_bytes=gnss_rx_bytes;enterprise_diag.gps_errors=gnss_rx_errors;

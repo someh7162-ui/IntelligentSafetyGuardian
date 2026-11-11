@@ -29,7 +29,7 @@ static void OV2640_HardwareReset(void);
 static HAL_StatusTypeDef OV2640_WriteTable(OV2640_Handle_t *camera,
                                            const OV2640_RegVal *table);
 static HAL_StatusTypeDef OV2640_SoftwareReset(OV2640_Handle_t *camera);
-static HAL_StatusTypeDef OV2640_InitJPEG_QVGA(OV2640_Handle_t *camera);
+static HAL_StatusTypeDef OV2640_InitJPEG(OV2640_Handle_t *camera);
 static HAL_StatusTypeDef OV2640_EnableAutoAECAGC(OV2640_Handle_t *camera);
 static HAL_StatusTypeDef OV2640_WaitAutoAdjust(uint8_t frame_count);
 static uint8_t OV2640_FindJPEG(const uint8_t *data,
@@ -108,6 +108,22 @@ static const OV2640_RegVal ov2640_qvga_320x240_table[] =
   {0xC0,0x64},{0xC1,0x4B},{0x86,0x35},{0x50,0x89},{0x51,0xC8},
   {0x52,0x96},{0x53,0x00},{0x54,0x00},{0x55,0x00},{0x57,0x00},
   {0x5A,0x50},{0x5B,0x3C},{0x5C,0x00},{0xE0,0x00},{0xFF,0xFF}
+};
+
+/* VGA JPEG window from the camera manufacturer's reference driver:
+ * https://github.com/ArduCAM/Arduino/blob/master/ArduCAM/ov2640_regs.h
+ * OV2640_640x480_JPEG. Keep the full sensor window before DSP downscaling. */
+static const OV2640_RegVal ov2640_vga_640x480_table[] =
+{
+  {0xFF,0x01},{0x11,0x01},{0x12,0x00},{0x17,0x11},{0x18,0x75},
+  {0x32,0x36},{0x19,0x01},{0x1A,0x97},{0x03,0x0F},{0x37,0x40},
+  {0x4F,0xBB},{0x50,0x9C},{0x5A,0x57},{0x6D,0x80},{0x3D,0x34},
+  {0x39,0x02},{0x35,0x88},{0x22,0x0A},{0x37,0x40},{0x34,0xA0},
+  {0x06,0x02},{0x0D,0xB7},{0x0E,0x01},{0xFF,0x00},{0xE0,0x04},
+  {0xC0,0xC8},{0xC1,0x96},{0x86,0x3D},{0x50,0x89},{0x51,0x90},
+  {0x52,0x2C},{0x53,0x00},{0x54,0x00},{0x55,0x88},{0x57,0x00},
+  {0x5A,0xA0},{0x5B,0x78},{0x5C,0x00},{0xD3,0x04},{0xE0,0x00},
+  {0xFF,0xFF}
 };
 
 
@@ -241,7 +257,7 @@ static HAL_StatusTypeDef OV2640_SoftwareReset(OV2640_Handle_t *camera)
     return HAL_OK;
 }
 
-static HAL_StatusTypeDef OV2640_InitJPEG_QVGA(OV2640_Handle_t *camera)
+static HAL_StatusTypeDef OV2640_InitJPEG(OV2640_Handle_t *camera)
 {
     HAL_StatusTypeDef status;
 
@@ -271,7 +287,9 @@ static HAL_StatusTypeDef OV2640_InitJPEG_QVGA(OV2640_Handle_t *camera)
 
     HAL_Delay(10);
 
-    status = OV2640_WriteTable(camera, ov2640_qvga_320x240_table);
+    const OV2640_RegVal *window = OV2640_JPEG_WIDTH == 640U ?
+        ov2640_vga_640x480_table : ov2640_qvga_320x240_table;
+    status = OV2640_WriteTable(camera, window);
     if (status != HAL_OK) return status;
 
     HAL_Delay(200);
@@ -282,12 +300,16 @@ static HAL_StatusTypeDef OV2640_EnableAutoAECAGC(OV2640_Handle_t *camera)
 {
     HAL_StatusTypeDef status;
     uint8_t com8 = 0U;
+    uint8_t com7 = 0U;
 
     status = OV2640_WriteReg(camera, 0xFFU, 0x01U);
     if (status != HAL_OK) return status;
 
     /* Normal image path, color bar OFF. */
-    status = OV2640_WriteReg(camera, 0x12U, 0x40U);
+    /* Preserve the selected resolution bits; only disable the color-bar bit. */
+    status = OV2640_ReadReg(camera, 0x12U, &com7);
+    if (status != HAL_OK) return status;
+    status = OV2640_WriteReg(camera, 0x12U, (uint8_t)(com7 & ~0x02U));
     if (status != HAL_OK) return status;
 
     status = OV2640_ReadReg(camera, 0x13U, &com8);
@@ -431,7 +453,7 @@ HAL_StatusTypeDef OV2640_Begin(OV2640_Handle_t *camera,
         return HAL_ERROR;
     }
 
-    status = OV2640_InitJPEG_QVGA(camera);
+    status = OV2640_InitJPEG(camera);
     if (status != HAL_OK) return status;
 
     status = OV2640_EnableAutoAECAGC(camera);

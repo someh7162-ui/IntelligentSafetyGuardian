@@ -1,0 +1,52 @@
+{
+  "observed_at": "2026-11-11T14:04:34.967459+08:00",
+  "firmware_sha256": "4b657a0ba60d21e669295a1c9f4670f1ba72a800adb0b555d85ee75af616ba57",
+  "firmware_version": "2.0.2-local-vga",
+  "firmware_matches": true,
+  "photos": [
+    {
+      "file": "capture-01.jpg",
+      "width": 640,
+      "height": 480,
+      "jpeg_bytes": 16558,
+      "sha256": "0109e806ce664d3b4dc9aaa78c3a13d4a24d04bb9715b2ac6ffcd5a467f4cc49",
+      "capture_ms": 1002,
+      "camera_ok": 1,
+      "camera_errors": 0
+    },
+    {
+      "file": "capture-02.jpg",
+      "width": 640,
+      "height": 480,
+      "jpeg_bytes": 16557,
+      "sha256": "491eb5232e734a2e0564bb7cb61b601198adc3e3c3bd76a2d95b22e7c7772452",
+      "capture_ms": 1002,
+      "camera_ok": 2,
+      "camera_errors": 0
+    },
+    {
+      "file": "capture-03.jpg",
+      "width": 640,
+      "height": 480,
+      "jpeg_bytes": 16200,
+      "sha256": "fe9ebf1cd78485fea90ae755f658c952c27228ebbb1bb9b3005b2b0c9ead8bb2",
+      "capture_ms": 1003,
+      "camera_ok": 3,
+      "camera_errors": 0
+    }
+  ],
+  "observed_imu_hz": 100.02,
+  "cellular_business_enabled": false,
+  "external_flash_writes_enabled": false,
+  "hardware": {
+    "calibrated": 1,
+    "imu_errors": 0,
+    "imu_late": 0,
+    "camera_ok": 3,
+    "camera_errors": 0,
+    "camera_width": 640,
+    "camera_height": 480,
+    "gps_valid": 0,
+    "storage_writable": 0
+  }
+}
